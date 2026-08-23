@@ -5,20 +5,27 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#101314",
-        panel: "#171b1d",
-        panelBorder: "#262b2e",
-        ink: "#EDEEE9",
-        muted: "#8B9296",
-        gold: "#E8A23D",
-        goldDim: "#4a3a1f",
-        rust: "#C1584B",
-        rustDim: "#3a201c",
+        // Cream + deep-maroon theme (matches the reference intake-form screenshot).
+        // "gold" stays the primary/positive accent token name so every component
+        // that already references text-gold / bg-gold / border-gold rethemes for
+        // free — only the hex values changed here.
+        bg: "#F6F1EA",
+        panel: "#FFFFFF",
+        panelBorder: "#E8DFD3",
+        ink: "#2E2224",
+        muted: "#8C7F76",
+        gold: "#7B3B49",
+        goldDim: "#F1E1E5",
+        rust: "#B0473B",
+        rustDim: "#F6E4DF",
       },
       fontFamily: {
-        display: ["'Space Grotesk'", "sans-serif"],
+        display: ["'Poppins'", "sans-serif"],
         body: ["'Inter'", "sans-serif"],
         mono: ["'IBM Plex Mono'", "monospace"],
+      },
+      borderRadius: {
+        pill: "999px",
       },
     },
   },

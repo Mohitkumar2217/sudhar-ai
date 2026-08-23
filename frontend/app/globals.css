@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,12 +6,18 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
 }
 
 html,
 body {
-  background-color: #101314;
-  color: #edeee9;
+  background-color: #f6f1ea;
+  color: #2e2224;
 }
 
 body {
@@ -19,13 +25,13 @@ body {
 }
 
 ::selection {
-  background-color: #e8a23d;
-  color: #101314;
+  background-color: #7b3b49;
+  color: #f6f1ea;
 }
 
 /* Visible keyboard focus, kept consistent everywhere */
 :focus-visible {
-  outline: 2px solid #e8a23d;
+  outline: 2px solid #7b3b49;
   outline-offset: 2px;
 }
 
