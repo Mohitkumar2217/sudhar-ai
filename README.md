@@ -188,11 +188,76 @@ at risk and top failure reasons correctly → copilot endpoint generated and exe
 SQL and returned a summarized answer, all in offline fallback mode with zero API
 keys configured.
 
-## 7. Natural next steps, in priority order
+## 7. The dashboard (`frontend/`)
+
+A Next.js 14 (App Router) console that consumes the FastAPI backend directly from
+the browser — no server-side proxy, since this is a single-tenant internal tool.
+
+**Design approach.** This is an operations console, not a marketing page, so the
+visual language is data-dense and financial rather than promotional: a graphite
+base with exactly two semantic accents — amber-gold for "recovered/correction" and
+rust for "at risk" — plus Space Grotesk (headers), Inter (body), and IBM Plex Mono
+(every number and table cell, so money reads as data). The one deliberate signature
+element is the **healing pulse line** under the Recovered metric: an SVG heartbeat
+trace that starts jagged on the left and settles into a steady rhythm on the right,
+animating in on load. It's a literal image of *sudhar* — correction — turning
+erratic failed payments into a steady, recovered signal.
+
+**What was built, step by step:**
+
+1. **`lib/api.ts`** — a typed fetch wrapper for the four backend endpoints
+   (`getSummary`, `getInvoices`, `runRecoveryCycle`, `askCopilot`), plus a
+   `formatCents` helper so currency formatting only lives in one place.
+2. **`components/PulseLine.tsx`** — the signature SVG element described above,
+   pure presentation, no data dependency.
+3. **`components/MetricCard.tsx`** — the reusable summary-stat card (used for
+   revenue at risk / recovered / recovery rate), with a `tone` prop that maps to
+   the gold/rust accent system.
+4. **`components/StatusPill.tsx`** — maps each `failed_invoices.status` value to a
+   human label and color, so the same status vocabulary is used consistently
+   everywhere the frontend touches it.
+5. **`components/InvoiceTable.tsx`** — the scrollable invoice list, with a
+   real empty state (not just a blank table) telling you to run the seed script.
+6. **`components/CopilotPanel.tsx`** — the CFO Copilot UI: an input box, three
+   suggested starter questions, an answer feed, and a collapsible `<details>` panel
+   showing the exact SQL that was run — kept collapsed by default since the
+   plain-English answer is the primary interface, but the SQL is always one click
+   away for anyone who wants to audit it.
+7. **`app/page.tsx`** — the page itself: fetches summary + invoices on load,
+   exposes the "Run recovery cycle" button (calls the same endpoint you'd otherwise
+   trigger from a cron job), and lays out the metric row, failure-reason strip,
+   invoice table, and copilot panel.
+
+**Verified working:** built with `npm run build` (clean TypeScript compile, no
+errors), then run live with `npm run dev` against a freshly seeded backend —
+confirmed the page renders with the correct title/metadata, the recovery-cycle
+button correctly triggers `/invoices/run-recovery-cycle`, and the backend's CORS
+headers (`access-control-allow-origin: *`) allow the browser to call
+`/copilot/ask` directly.
+
+### Running the dashboard
+
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local   # points at localhost:8000 by default
+npm run dev
+```
+
+Make sure the backend (Section 4) is running first — the dashboard has no data of
+its own.
+
+**Note on `npm audit`:** this pins Next.js 14.2.35, the latest patched release on
+the 14.x line. `npm audit` will still flag advisories that only have fixes on the
+Next 16 line, which is a breaking-change upgrade out of scope for this MVP; since
+this runs locally against your own backend rather than being self-hosted publicly,
+that's an acceptable tradeoff for now — revisit before any real deployment.
+
+## 8. Natural next steps, in priority order
 
 1. Replace the seed script with a real Stripe test-mode webhook listener.
-2. Build the Next.js dashboard: three summary cards, an invoice table, and the
-   copilot question box on top of this existing API.
-3. Add the JWT magic-link "update your card" portal.
-4. Once there's real usage data, revisit `retry_rules.py` with an actual trained
+2. Add the JWT magic-link "update your card" portal.
+3. Once there's real usage data, revisit `retry_rules.py` with an actual trained
    model — only worth doing once there's real signal to learn from.
+4. Before any public deployment: tighten CORS in `main.py`, and plan the Next 16
+   upgrade to clear the remaining `npm audit` advisories.

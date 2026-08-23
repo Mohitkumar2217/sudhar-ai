@@ -1,0 +1,50 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background-color: #101314;
+  color: #edeee9;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+}
+
+::selection {
+  background-color: #e8a23d;
+  color: #101314;
+}
+
+/* Visible keyboard focus, kept consistent everywhere */
+:focus-visible {
+  outline: 2px solid #e8a23d;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.pulse-path {
+  stroke-dasharray: 340;
+  stroke-dashoffset: 340;
+  animation: draw-pulse 1.8s ease-out forwards;
+}
+
+@keyframes draw-pulse {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
