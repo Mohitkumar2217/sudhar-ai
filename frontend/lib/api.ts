@@ -1,0 +1,76 @@
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export type Invoice = {
+  id: string;
+  invoice_id: string;
+  customer_name: string | null;
+  customer_email: string;
+  amount_due_cents: number;
+  raw_decline_code: string;
+  iso_8583_code: string | null;
+  failure_type: string | null;
+  status: string;
+  attempt_count: number;
+  next_action_scheduled_at: string | null;
+  recovered_at: string | null;
+  created_at: string;
+};
+
+export type DashboardSummary = {
+  revenue_at_risk_cents: number;
+  revenue_recovered_cents: number;
+  revenue_exhausted_cents: number;
+  recovery_rate: number | null;
+  top_failure_reasons: { reason: string; count: number }[];
+  recent_actions: {
+    invoice_id: string;
+    action_type: string;
+    channel: string | null;
+    is_successful: boolean | null;
+    created_at: string;
+  }[];
+};
+
+export type CopilotResponse = {
+  question: string;
+  sql: string;
+  columns: string[];
+  rows: unknown[][];
+  answer: string;
+};
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Request to ${path} failed (${res.status}): ${detail}`);
+  }
+  return res.json();
+}
+
+export const api = {
+  getSummary: () => request<DashboardSummary>("/dashboard/summary"),
+  getInvoices: (status?: string) =>
+    request<Invoice[]>(`/invoices${status ? `?status=${status}` : ""}`),
+  runRecoveryCycle: () => request<{ ran_at: string; result: Record<string, number> }>(
+    "/invoices/run-recovery-cycle",
+    { method: "POST" }
+  ),
+  askCopilot: (question: string) =>
+    request<CopilotResponse>("/copilot/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+};
+
+export function formatCents(cents: number): string {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}

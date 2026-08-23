@@ -66,7 +66,7 @@ export default function DashboardPage() {
         <button
           onClick={handleRunCycle}
           disabled={cycling}
-          className="font-display text-sm font-medium border border-gold text-gold rounded-md px-4 py-2 hover:bg-gold hover:text-bg transition disabled:opacity-50"
+          className="font-display text-sm font-medium border border-gold text-gold rounded-pill px-5 py-2.5 hover:bg-gold hover:text-panel transition disabled:opacity-50"
         >
           {cycling ? "Running cycle…" : "Run recovery cycle"}
         </button>
