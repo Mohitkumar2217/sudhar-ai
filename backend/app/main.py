@@ -22,4 +22,4 @@ app.include_router(copilot.router)
 
 @app.get("/")
 def health():
-    return {"status": "ok", "service": "sudhar-ai-mvp"}
+    return {"status": "ok", "service": "sudhar-ai"}
