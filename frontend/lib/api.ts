@@ -31,6 +31,15 @@ export type DashboardSummary = {
   }[];
 };
 
+export type PortalInvoice = {
+  already_recovered: boolean;
+  tenant_name: string;
+  customer_name?: string;
+  amount_due_cents?: number;
+  currency?: string;
+  invoice_ref?: string;
+};
+
 export type CopilotResponse = {
   question: string;
   sql: string;
@@ -64,6 +73,13 @@ export const api = {
     request<CopilotResponse>("/copilot/ask", {
       method: "POST",
       body: JSON.stringify({ question }),
+    }),
+  getPortalInvoice: (token: string) =>
+    request<PortalInvoice>(`/portal/invoice?token=${encodeURIComponent(token)}`),
+  updateCard: (token: string) =>
+    request<{ status: string }>("/portal/update-card", {
+      method: "POST",
+      body: JSON.stringify({ token }),
     }),
 };
 

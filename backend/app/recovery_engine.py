@@ -6,20 +6,56 @@ machine is expressed as an idempotent "tick" function: call it on a schedule
 for action. This keeps the same guardrails (no retries on hard declines, max
 4 attempts / 14 days) without needing a workflow engine running in the background.
 """
+import os
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import FailedInvoice, Customer, RecoveryAction
+from app.models import FailedInvoice, Customer, Tenant, RecoveryAction
 from app.decline_taxonomy import RootCauseDiagnosticEngine, FailureDomain
 from app.retry_rules import next_retry_at, is_retry_permissible
 from app.llm import generate_dunning_copy
 from app.email_sender import send_dunning_email
+from app.magic_link import generate_magic_link
+from app.retry_model import predict_best_retry_delay_hours, RetryModelUnavailable
+
+# Off by default. When true, retry timing comes from the trained model in
+# app/retry_model.py INSTEAD of the retry_rules.py heuristic — see README Step 12
+# before enabling this. The model is trained on synthetic labels, not real
+# recovery outcomes, so this flag exists to demonstrate the integration point,
+# not because the model is known to outperform the heuristic yet.
+RETRY_MODEL_ENABLED = os.getenv("RETRY_MODEL_ENABLED", "false").lower() == "true"
 
 
-def classify_invoice(invoice: FailedInvoice, customer: Customer) -> None:
+def _next_retry_schedule(invoice: FailedInvoice, customer: Customer, now: datetime) -> tuple[datetime, float]:
+    """Returns (next_action_scheduled_at, predicted_recovery_rate). Tries the
+    trained model first if RETRY_MODEL_ENABLED; falls back to the retry_rules.py
+    heuristic on ANY failure to load or predict — the recovery loop must keep
+    working whether or not a model artifact exists."""
+    if RETRY_MODEL_ENABLED:
+        try:
+            delay_hours, probability = predict_best_retry_delay_hours(
+                decline_code=invoice.raw_decline_code,
+                attempt_number=invoice.attempt_count,
+                health_score=float(customer.health_score or 1.0),
+                days_active_30d=customer.days_active_past_30d or 30,
+                amount_cents=invoice.amount_due_cents,
+                now=now,
+            )
+            return now + timedelta(hours=delay_hours), probability
+        except RetryModelUnavailable:
+            pass  # fall through to the heuristic below
+
+    heuristic_rate = RootCauseDiagnosticEngine.analyze(
+        invoice.raw_decline_code, float(customer.health_score or 1.0), customer.days_active_past_30d or 30
+    ).estimated_recovery_rate
+    return next_retry_at(invoice.attempt_count, now), heuristic_rate
+
+
+def classify_invoice(invoice: FailedInvoice, customer: Customer, now: datetime | None = None) -> None:
     """Runs the deterministic diagnostic engine and writes the result onto the invoice."""
+    now = now or datetime.utcnow()
     result = RootCauseDiagnosticEngine.analyze(
         raw_code=invoice.raw_decline_code,
         customer_health_score=float(customer.health_score or 1.0),
@@ -32,7 +68,7 @@ def classify_invoice(invoice: FailedInvoice, customer: Customer) -> None:
         invoice.status = "DUNNING_ACTIVE"
     else:
         invoice.status = "SCHEDULED_RETRY"
-        invoice.next_action_scheduled_at = next_retry_at(invoice.attempt_count)
+        invoice.next_action_scheduled_at, _ = _next_retry_schedule(invoice, customer, now)
 
 
 def _log_action(db: Session, invoice: FailedInvoice, action_type: str, channel: str | None,
@@ -63,7 +99,7 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
     pending = db.query(FailedInvoice).filter(FailedInvoice.status == "PENDING").all()
     for invoice in pending:
         customer = db.query(Customer).get(invoice.customer_id)
-        classify_invoice(invoice, customer)
+        classify_invoice(invoice, customer, now)
         invoice.updated_at = now
 
     db.commit()
@@ -78,8 +114,9 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
         if already_dunned:
             continue
         customer = db.query(Customer).get(invoice.customer_id)
-        link = f"https://pay.sudhar.example/update?invoice={invoice.invoice_id}"
-        copy = generate_dunning_copy(customer.name or customer.email, "your subscription", link,
+        tenant = db.query(Tenant).get(invoice.tenant_id)
+        link = generate_magic_link(invoice.tenant_id, customer.id, invoice.id)
+        copy = generate_dunning_copy(customer.name or customer.email, tenant.name, link,
                                       days_overdue=(now - invoice.created_at).days)
         sent = send_dunning_email(customer.email, copy["subject"], copy["body_text"])
         _log_action(db, invoice, "DUNNING_EMAIL", "EMAIL", copy["subject"], copy["body_text"], sent)
@@ -98,9 +135,7 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
             continue
 
         customer = db.query(Customer).get(invoice.customer_id)
-        rate = RootCauseDiagnosticEngine.analyze(
-            invoice.raw_decline_code, float(customer.health_score or 1.0), customer.days_active_past_30d or 30
-        ).estimated_recovery_rate
+        _, rate = _next_retry_schedule(invoice, customer, now)
         success = _simulate_headless_retry(rate)
         processed["retries_attempted"] += 1
         _log_action(db, invoice, "HEADLESS_RETRY", None, None, None, success)
@@ -115,7 +150,7 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
                 # Escalate to dunning alongside continued silent retries, per the original spec.
                 invoice.status = "DUNNING_ACTIVE"
             else:
-                invoice.next_action_scheduled_at = next_retry_at(invoice.attempt_count, now)
+                invoice.next_action_scheduled_at, _ = _next_retry_schedule(invoice, customer, now)
 
     db.commit()
     return processed
