@@ -125,8 +125,35 @@ Three route groups:
   backed by an actual query result.
 
 ### Step 9 — Wiring (`app/main.py`)
-Creates tables on startup, mounts the three routers, enables permissive CORS for
-local frontend development (tighten before any real deployment).
+Creates tables on startup, mounts the routers, enables permissive CORS for local
+frontend development (tighten before any real deployment).
+
+### Step 10 — Real Stripe webhook ingestion (`app/routers/webhooks.py`, `app/stripe_signature.py`)
+Replaces the seed script as the real path for getting failed-payment events into
+the system. `POST /webhooks/stripe/{tenant_id}` does three things a webhook
+receiver has to get right:
+
+1. **Verifies the signature for real.** `stripe_signature.py` implements Stripe's
+   actual `Stripe-Signature: t=<timestamp>,v1=<hmac>` scheme — HMAC-SHA256 over
+   `"{timestamp}.{raw_body}"`, checked with `hmac.compare_digest` (constant-time,
+   so it isn't vulnerable to timing attacks), plus a 5-minute tolerance window to
+   reject replayed payloads. A bad or missing signature returns `401` before
+   anything touches the database.
+2. **Handles idempotency at the event level**, not just the invoice level. Stripe
+   redelivers a webhook on any non-2xx response, so a repeat `event_id` is normal
+   traffic, not an error — it's checked against a `webhook_events` table and
+   short-circuited to `{"status": "ignored"}` before any processing happens. The
+   existing `(tenant_id, invoice_id)` unique constraint is kept as a second,
+   independent safety net.
+3. **Auto-creates the customer record** on first sight, since Stripe's payload
+   doesn't carry the engagement signals (`health_score`, `days_active_past_30d`)
+   the classifier uses — those get backfilled from a separate telemetry source
+   (Segment/Mixpanel/etc.) in a real deployment, and default to neutral values here.
+
+Because this sandbox can't reach `stripe.com` directly, correctness was proven with
+`scripts/send_test_webhook.py` — not a mock of the endpoint, but a real HTTP
+request carrying a correctly HMAC-signed payload built the same way Stripe builds
+one, hitting the exact same verification code a production deployment would run.
 
 ---
 
@@ -151,13 +178,38 @@ Then:
 | `POST /invoices/run-recovery-cycle` | Advance every invoice due for action — call repeatedly to watch the state machine progress |
 | `GET /dashboard/summary` | Revenue at risk / recovered, recovery rate, top failure reasons |
 | `POST /copilot/ask` | `{"question": "..."}` → guarded text-to-SQL + AI summary |
+| `POST /webhooks/stripe/{tenant_id}` | Real Stripe webhook receiver (HMAC-verified) — see Section 5 to test it locally |
 
 No keys required to run the full loop end to end. Set `ANTHROPIC_API_KEY` to get
 real AI-generated dunning copy and real natural-language copilot answers instead of
 the static fallbacks; set `RESEND_API_KEY` to actually send the emails instead of
 logging them.
 
-## 5. Repo layout
+## 5. Testing the webhook path
+
+```bash
+# with the server already running (see Quickstart above)
+python -m scripts.send_test_webhook <tenant_id> insufficient_funds
+```
+
+This was verified against four cases, each hitting real code paths (not stubs) —
+sending an actually HMAC-signed HTTP request, the same way Stripe would, since this
+build environment can't reach `stripe.com` directly:
+
+| Case | Result |
+|---|---|
+| Valid signature, known tenant | `200`, invoice created (`status: enqueued`) |
+| Unknown `tenant_id` | `404` |
+| Corrupted signature | `401 Signature mismatch` |
+| Same `event_id` sent twice (simulated Stripe redelivery) | First: `200 enqueued`. Second: `200 ignored, reason: duplicate_event` |
+
+A `stolen_card` event sent through the webhook was then confirmed to flow correctly
+into the existing recovery engine: classified as `HARD_DECLINE` and routed to
+`DUNNING_ACTIVE` on the next recovery cycle, exactly like a seeded invoice with the
+same decline code — proving the webhook path and the recovery engine are actually
+wired together, not two disconnected pieces.
+
+## 6. Repo layout
 
 ```
 backend/
@@ -167,28 +219,35 @@ backend/
   app/
     db.py                   SQLAlchemy engine — SQLite by default, Postgres via DATABASE_URL
     models.py               ORM models (Tenant, Customer, FailedInvoice, RecoveryAction)
+    webhook_models.py       WebhookEvent — idempotency tracking for Step 10
     decline_taxonomy.py     Step 2 — deterministic classification
     retry_rules.py          Step 3 — retry timing + compliance guardrails
     recovery_engine.py      Step 4 — the core classify -> decide -> act loop
     llm.py                  Step 5 — Anthropic wrapper (dunning copy + copilot synthesis)
     email_sender.py         Step 6 — Resend integration
     seed.py                 Step 7 — fake data generator
+    stripe_signature.py     Step 10 — HMAC verification (and signing, for tests)
     main.py                 Step 9 — FastAPI app wiring
     routers/
       invoices.py           Step 8
       dashboard.py          Step 8
       copilot.py            Step 8 — the AI CFO Copilot
+      webhooks.py           Step 10 — real Stripe webhook ingestion
+  scripts/
+    send_test_webhook.py    Sends a real signed webhook for local testing
 ```
 
-## 6. Verified working (already tested)
+## 7. Verified working (already tested)
 
 Seeded 60 customers / 200 invoices → ran a recovery cycle (63 invoices correctly
 routed to dunning, rest scheduled for retry) → dashboard summary aggregated revenue
 at risk and top failure reasons correctly → copilot endpoint generated and executed
 SQL and returned a summarized answer, all in offline fallback mode with zero API
-keys configured.
+keys configured. The Stripe webhook path was independently verified end to end
+(see Section 5), including a webhook-sourced invoice flowing correctly through the
+existing recovery engine.
 
-## 7. The dashboard (`frontend/`)
+## 8. The dashboard (`frontend/`)
 
 A Next.js 14 (App Router) console that consumes the FastAPI backend directly from
 the browser — no server-side proxy, since this is a single-tenant internal tool.
@@ -253,11 +312,12 @@ Next 16 line, which is a breaking-change upgrade out of scope for this MVP; sinc
 this runs locally against your own backend rather than being self-hosted publicly,
 that's an acceptable tradeoff for now — revisit before any real deployment.
 
-## 8. Natural next steps, in priority order
+## 9. Natural next steps, in priority order
 
-1. Replace the seed script with a real Stripe test-mode webhook listener.
+1. ~~Replace the seed script with a real Stripe test-mode webhook listener.~~ **Done** — see Section 3, Step 10 and Section 5.
 2. Add the JWT magic-link "update your card" portal.
 3. Once there's real usage data, revisit `retry_rules.py` with an actual trained
    model — only worth doing once there's real signal to learn from.
-4. Before any public deployment: tighten CORS in `main.py`, and plan the Next 16
-   upgrade to clear the remaining `npm audit` advisories.
+4. Before any public deployment: tighten CORS in `main.py`, replace
+   `STRIPE_WEBHOOK_SECRET`'s local-dev default with a real Stripe signing secret,
+   and plan the Next 16 upgrade to clear the remaining `npm audit` advisories.
