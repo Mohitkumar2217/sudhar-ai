@@ -1,11 +1,70 @@
 import { Invoice, formatCents } from "@/lib/api";
 import StatusPill from "./StatusPill";
 
-export default function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
+const STATUS_OPTIONS = [
+  { value: "", label: "All statuses" },
+  { value: "PENDING", label: "Pending" },
+  { value: "SCHEDULED_RETRY", label: "Retry scheduled" },
+  { value: "DUNNING_ACTIVE", label: "Dunning active" },
+  { value: "RECOVERED", label: "Recovered" },
+  { value: "FAILED_EXHAUSTED", label: "Exhausted" },
+];
+
+export default function InvoiceTable({
+  invoices,
+  statusFilter,
+  onStatusFilterChange,
+  search,
+  onSearchChange,
+}: {
+  invoices: Invoice[];
+  statusFilter: string;
+  onStatusFilterChange: (v: string) => void;
+  search: string;
+  onSearchChange: (v: string) => void;
+}) {
+  const filtered = invoices.filter((inv) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (inv.customer_name || "").toLowerCase().includes(q) ||
+      inv.customer_email.toLowerCase().includes(q) ||
+      inv.invoice_id.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row gap-2 mb-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search customer or invoice…"
+          className="flex-1 bg-bg border border-panelBorder rounded-pill px-4 py-2 text-sm font-body text-ink placeholder:text-muted focus:border-gold outline-none"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => onStatusFilterChange(e.target.value)}
+          className="bg-bg border border-panelBorder rounded-pill px-4 py-2 text-sm font-body text-ink focus:border-gold outline-none"
+        >
+          {STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <InvoiceTableBody invoices={filtered} />
+    </div>
+  );
+}
+
+function InvoiceTableBody({ invoices }: { invoices: Invoice[] }) {
   if (invoices.length === 0) {
     return (
       <div className="text-sm text-muted py-10 text-center">
-        No failed invoices yet. Run <code className="font-mono text-gold">python -m app.seed</code> in
+        No matching invoices. Run <code className="font-mono text-gold">python -m app.seed</code> in
         the backend to generate demo data.
       </div>
     );
@@ -49,3 +108,4 @@ export default function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
     </div>
   );
 }
+

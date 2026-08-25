@@ -318,6 +318,8 @@ Then:
 | `POST /webhooks/stripe/{tenant_id}` | Real Stripe webhook receiver (HMAC-verified) — see Section 5 to test it locally |
 | `GET /portal/invoice?token=...` | Resolves a magic-link token to invoice details |
 | `POST /portal/update-card` | Confirms the (simulated) card update, marks the invoice recovered |
+| `GET /model/status` | Retry-model training status — trained/enabled, synthetic-vs-real, test metrics |
+| `GET /invoices/actions?limit=` | Recent recovery-action feed with customer/invoice context |
 
 No keys required to run the full loop end to end. Set `ANTHROPIC_API_KEY` to get
 real AI-generated dunning copy and real natural-language copilot answers instead of
@@ -378,6 +380,7 @@ backend/
       copilot.py             Step 8 — the AI CFO Copilot
       webhooks.py            Step 10 — real Stripe webhook ingestion
       portal.py               Step 11 — magic-link portal API
+      model_status.py         Dashboard "advanced features" pass — GET /model/status
   scripts/
     send_test_webhook.py    Sends a real signed webhook for local testing
     train_retry_model.py    Step 12 — trains and saves the retry-timing model
@@ -438,6 +441,35 @@ erratic failed payments into a steady, recovered signal.
    exposes the "Run recovery cycle" button (calls the same endpoint you'd otherwise
    trigger from a cron job), and lays out the metric row, failure-reason strip,
    invoice table, and copilot panel.
+
+**Advanced features added in a later pass** — these expose backend capability
+(the retry model, the recovery-actions audit log) that existed but had no UI:
+
+8. **Model status panel** (`components/ModelStatusPanel.tsx` + new backend
+   endpoint `GET /model/status`) — surfaces whether a retry-timing model is
+   trained, whether `RETRY_MODEL_ENABLED` is actually on, and critically,
+   whether that model was trained on **synthetic** data. This was a real gap:
+   the synthetic/real distinction from Step 12 lived only in a JSON file and a
+   README section before this — now it's a visible warning banner in the UI
+   itself, so nobody looking at the dashboard can mistake a synthetic model for
+   a validated one.
+9. **Activity feed** (`components/ActivityFeed.tsx` + new backend endpoint
+   `GET /invoices/actions`) — a live log of dunning emails, silent retries, and
+   portal card-updates, each with the customer and a relative timestamp. The
+   `recent_actions` data already existed in `/dashboard/summary` but was never
+   rendered anywhere in the UI.
+10. **Failure-reasons chart** (`components/FailureReasonsChart.tsx`) — a hand-built
+    SVG horizontal bar chart, deliberately not a charting library dependency,
+    consistent with `PulseLine.tsx`'s approach — replaces the plain text pills
+    that previously showed this data.
+11. **Invoice search + status filter** (`components/InvoiceTable.tsx`) — a
+    pill-styled search box (client-side, matches customer/email/invoice ID) and
+    a status dropdown that re-queries `GET /invoices?status=...`, which the API
+    already supported but the UI never exposed.
+12. **Live mode** (`app/page.tsx`) — a toggle that polls all four dashboard
+    endpoints silently every 10 seconds when on, with a pulsing gold dot in the
+    header. Off by default so the console doesn't hit the backend
+    (and the LLM-backed copilot, if it were polled) without being asked to.
 
 **Verified working:** built with `npm run build` (clean TypeScript compile, no
 errors), then run live with `npm run dev` against a freshly seeded backend —

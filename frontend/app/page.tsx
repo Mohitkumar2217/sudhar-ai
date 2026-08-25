@@ -1,24 +1,42 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, DashboardSummary, Invoice, formatCents } from "@/lib/api";
+import { api, DashboardSummary, Invoice, ModelStatus, ActivityAction, formatCents } from "@/lib/api";
 import MetricCard from "@/components/MetricCard";
 import PulseLine from "@/components/PulseLine";
 import InvoiceTable from "@/components/InvoiceTable";
 import CopilotPanel from "@/components/CopilotPanel";
+import ModelStatusPanel from "@/components/ModelStatusPanel";
+import FailureReasonsChart from "@/components/FailureReasonsChart";
+import ActivityFeed from "@/components/ActivityFeed";
+
+const LIVE_REFRESH_MS = 10000;
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [activity, setActivity] = useState<ActivityAction[]>([]);
   const [loading, setLoading] = useState(true);
   const [cycling, setCycling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveMode, setLiveMode] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
-      const [s, i] = await Promise.all([api.getSummary(), api.getInvoices()]);
+      const [s, i, m, a] = await Promise.all([
+        api.getSummary(),
+        api.getInvoices(statusFilter || undefined),
+        api.getModelStatus(),
+        api.getActivity(15),
+      ]);
       setSummary(s);
       setInvoices(i);
+      setModelStatus(m);
+      setActivity(a);
       setError(null);
     } catch (err) {
       setError(
@@ -29,11 +47,20 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Live mode: poll silently in the background so numbers update without a
+  // full-page loading flash — this is what makes "Run recovery cycle" feel
+  // like a live operations console rather than a static report.
+  useEffect(() => {
+    if (!liveMode) return;
+    const interval = setInterval(() => load({ silent: true }), LIVE_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [liveMode, load]);
 
   async function handleRunCycle() {
     setCycling(true);
@@ -53,7 +80,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-bg px-6 py-6 md:px-10 md:py-8">
       {/* Top bar */}
-      <header className="flex items-center justify-between mb-8 pb-4 border-b border-panelBorder">
+      <header className="flex flex-wrap items-center justify-between gap-3 mb-8 pb-4 border-b border-panelBorder">
         <div className="flex items-baseline gap-3">
           <span className="font-display text-gold text-xl">सुधार</span>
           <div className="flex flex-col leading-tight">
@@ -63,13 +90,27 @@ export default function DashboardPage() {
             <span className="text-xs text-muted">Operations console</span>
           </div>
         </div>
-        <button
-          onClick={handleRunCycle}
-          disabled={cycling}
-          className="font-display text-sm font-medium border border-gold text-gold rounded-pill px-5 py-2.5 hover:bg-gold hover:text-panel transition disabled:opacity-50"
-        >
-          {cycling ? "Running cycle…" : "Run recovery cycle"}
-        </button>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setLiveMode((v) => !v)}
+            aria-pressed={liveMode}
+            className="flex items-center gap-2 font-display text-sm font-medium text-muted hover:text-ink transition"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${liveMode ? "bg-gold animate-pulse" : "bg-panelBorder"}`}
+              aria-hidden="true"
+            />
+            {liveMode ? "Live" : "Live off"}
+          </button>
+          <button
+            onClick={handleRunCycle}
+            disabled={cycling}
+            className="font-display text-sm font-medium border border-gold text-gold rounded-pill px-5 py-2.5 hover:bg-gold hover:text-panel transition disabled:opacity-50"
+          >
+            {cycling ? "Running cycle…" : "Run recovery cycle"}
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -100,31 +141,45 @@ export default function DashboardPage() {
         />
       </section>
 
-      {/* Top failure reasons strip */}
-      {summary && summary.top_failure_reasons.length > 0 && (
-        <section className="mb-6 flex flex-wrap gap-2">
-          {summary.top_failure_reasons.map((r) => (
-            <span
-              key={r.reason}
-              className="font-mono text-xs border border-panelBorder rounded px-2.5 py-1.5 text-muted"
-            >
-              <span className="text-ink">{r.reason.replaceAll("_", " ")}</span>
-              <span className="text-gold ml-2">{r.count}</span>
-            </span>
-          ))}
-        </section>
-      )}
-
-      {/* Main grid: invoices + copilot */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      {/* Main grid: invoices + side column */}
+      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
         <div className="lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5">
           <h2 className="font-display text-sm font-semibold text-ink mb-3">
             Failed invoices
           </h2>
-          <InvoiceTable invoices={invoices} />
+          <InvoiceTable
+            invoices={invoices}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            search={search}
+            onSearchChange={setSearch}
+          />
         </div>
 
-        <div className="lg:col-span-2 bg-panel border border-panelBorder rounded-lg p-5 flex flex-col min-h-[420px]">
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          <ModelStatusPanel status={modelStatus} />
+
+          {summary && summary.top_failure_reasons.length > 0 && (
+            <div className="bg-panel border border-panelBorder rounded-lg p-5">
+              <h2 className="font-display text-sm font-semibold text-ink mb-2">
+                Top failure reasons
+              </h2>
+              <FailureReasonsChart reasons={summary.top_failure_reasons} />
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Activity feed + copilot */}
+      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-2 bg-panel border border-panelBorder rounded-lg p-5 max-h-[420px] overflow-y-auto">
+          <h2 className="font-display text-sm font-semibold text-ink mb-1">
+            Recent activity
+          </h2>
+          <ActivityFeed actions={activity} />
+        </div>
+
+        <div className="lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5 flex flex-col min-h-[420px]">
           <h2 className="font-display text-sm font-semibold text-ink mb-3">
             CFO Copilot
           </h2>
@@ -134,3 +189,4 @@ export default function DashboardPage() {
     </main>
   );
 }
+

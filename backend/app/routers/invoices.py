@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import FailedInvoice, Customer
+from app.models import FailedInvoice, Customer, RecoveryAction
 from app.recovery_engine import process_due_invoices
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -46,3 +46,31 @@ def run_recovery_cycle(db: Session = Depends(get_db)):
     would be triggered by a cron job every few minutes instead of a manual call."""
     result = process_due_invoices(db, now=datetime.utcnow())
     return {"ran_at": datetime.utcnow(), "result": result}
+
+
+@router.get("/actions")
+def list_actions(limit: int = 30, db: Session = Depends(get_db)):
+    """A dedicated feed endpoint, richer than the top-10 embedded in
+    /dashboard/summary — includes the customer and invoice context so the
+    frontend can render a real activity log instead of a bare action list."""
+    actions = (
+        db.query(RecoveryAction)
+        .order_by(RecoveryAction.created_at.desc())
+        .limit(min(limit, 100))
+        .all()
+    )
+    out = []
+    for a in actions:
+        invoice = db.query(FailedInvoice).get(a.invoice_id)
+        customer = db.query(Customer).get(invoice.customer_id) if invoice else None
+        out.append({
+            "id": a.id,
+            "action_type": a.action_type,
+            "channel": a.channel,
+            "is_successful": a.is_successful,
+            "created_at": a.created_at,
+            "invoice_ref": invoice.invoice_id if invoice else None,
+            "customer_name": (customer.name or customer.email) if customer else None,
+            "amount_due_cents": invoice.amount_due_cents if invoice else None,
+        })
+    return out

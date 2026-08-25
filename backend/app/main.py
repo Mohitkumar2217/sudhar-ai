@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import Base, engine
-from app.routers import invoices, dashboard, copilot, webhooks, portal
+from app.routers import invoices, dashboard, copilot, webhooks, portal, model_status
 from app import webhook_models  # noqa: F401 — registers WebhookEvent table with Base.metadata
 
 Base.metadata.create_all(bind=engine)
@@ -21,6 +21,7 @@ app.include_router(dashboard.router)
 app.include_router(copilot.router)
 app.include_router(webhooks.router)
 app.include_router(portal.router)
+app.include_router(model_status.router)
 
 
 @app.get("/")

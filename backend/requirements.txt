@@ -4,7 +4,7 @@ sqlalchemy==2.0.35
 pydantic==2.9.2
 requests==2.32.3
 anthropic==0.34.2
-psycopg[binary] 
+psycopg2-binary==2.9.9
 PyJWT>=2.7.0
 scikit-learn>=1.5.0
 pandas>=2.2.0

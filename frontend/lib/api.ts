@@ -40,6 +40,29 @@ export type PortalInvoice = {
   invoice_ref?: string;
 };
 
+export type ModelStatus = {
+  trained: boolean;
+  enabled: boolean;
+  active: boolean;
+  is_synthetic?: boolean;
+  trained_at?: string;
+  n_samples?: number;
+  test_auc?: number;
+  test_accuracy?: number;
+  test_brier_score?: number;
+};
+
+export type ActivityAction = {
+  id: string;
+  action_type: string;
+  channel: string | null;
+  is_successful: boolean | null;
+  created_at: string;
+  invoice_ref: string | null;
+  customer_name: string | null;
+  amount_due_cents: number | null;
+};
+
 export type CopilotResponse = {
   question: string;
   sql: string;
@@ -81,6 +104,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ token }),
     }),
+  getModelStatus: () => request<ModelStatus>("/model/status"),
+  getActivity: (limit = 15) =>
+    request<ActivityAction[]>(`/invoices/actions?limit=${limit}`),
 };
 
 export function formatCents(cents: number): string {
