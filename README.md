@@ -231,11 +231,65 @@ be smarter than the assumptions baked into its training labels**. That's not a
 bug in the code; it's the actual reason the roadmap said to hold off on this
 until real data exists, made concrete instead of theoretical.
 
-**To retrain on real data once it exists:** replace the
-`generate_synthetic_dataset()` call in `train_retry_model.py` with a query
-joining `RecoveryAction` to `FailedInvoice` (real outcome, at what attempt count
-and what real timestamp), keep the same feature columns, and flip `is_synthetic`
-to `False` in the saved metadata.
+**To retrain on real data once it exists:** this is now built and working —
+see the roadmap below rather than the old "replace this call" note, which is
+now out of date.
+
+### Real-data roadmap for Step 12 (built, not just planned)
+
+The feature/label spec, ranked by what's missing vs. already captured:
+
+| Feature | Status |
+|---|---|
+| `decline_code`, `amount_due_cents`, `health_score`, `days_active_30d` | Already captured |
+| `attempt_number` at time of action | **Was broken** — lived only on the mutable `FailedInvoice.attempt_count`, which changes after the fact. Fixed below. |
+| `hour_of_day`, `day_of_week`, `day_of_month` | Derivable from `RecoveryAction.created_at` (real timestamp, not simulated) |
+| `card_brand`, `card_country` | Not yet captured — Stripe sends this under `charge.payment_method_details.card`, not currently stored |
+| Cardholder's *local* hour (not server UTC) | Not yet captured — this is what Stripe's own Smart Retries actually keys off, and is a bigger lever than anything else on this list |
+
+**What got built to fix the broken parts:**
+
+1. **`RecoveryAction` now snapshots `attempt_number`, `decline_code_snapshot`, and
+   `health_score_snapshot`** at the moment each action is logged
+   (`app/models.py`, `schema.sql`). Before this fix, querying historical actions
+   for training would silently mislabel every row with the invoice's *current*
+   attempt count instead of what it was at that specific attempt — a real bug,
+   not a hypothetical one, caught while writing this roadmap.
+2. **`app/real_retry_data.py`** extracts real training rows from
+   `RecoveryAction` using those snapshots (not a live join), refuses to proceed
+   below 500 rows (`InsufficientDataError`), and warns below 2,000 (arbitrary
+   but reasonable thresholds — see Phase 1 below for why volume matters this much).
+3. **Time-based split**, not random — `time_based_split()` trains on the
+   earliest 80% of attempts chronologically, tests on the most recent 20%. A
+   random split would leak future calendar patterns into training and make
+   validation look better than real forward-time performance.
+4. **`scripts/train_retry_model.py --source real`** runs the whole thing, plus
+   a Brier score alongside AUC — calibration matters here specifically because
+   `predict_best_retry_delay_hours()` uses the raw probability to *rank*
+   candidate hours, not just the class label.
+
+**Verified working, honestly, including the low-volume case:** ran the
+recovery engine forward across several simulated days to generate 201 real
+`HEADLESS_RETRY` rows with valid snapshots. `--source real` correctly refused
+to save a model (201 < the 500-row minimum) rather than silently training on
+too little data. Manually bypassing the guard for a proof-only run showed
+exactly the expected result — AUC 0.58, barely above random — which is the
+correct outcome for 201 rows with no real timing signal yet, not a failure of
+the pipeline.
+
+**The six-phase rollout, in order:**
+1. **Collect volume** — a few thousand real retry attempts minimum, spanning at
+   least one full month (to see payday effects) before the first real training run.
+2. **Extract** — `python -m scripts.train_retry_model --source real`.
+3. **Time-based split** — already built in, not a manual step.
+4. **Check calibration**, not just AUC — the Brier score is already printed by
+   the training script.
+5. **Shadow mode before it touches real customers** — log what the model
+   *would* have picked without acting on it, for a few weeks, before flipping
+   `RETRY_MODEL_ENABLED=true` anywhere it affects real dunning emails.
+6. **Retrain on a cadence** (monthly is a reasonable start) once live, and
+   watch for the decline-code distribution shifting enough to invalidate the
+   training window.
 
 ---
 
@@ -314,6 +368,7 @@ backend/
     stripe_signature.py     Step 10 — HMAC verification (and signing, for tests)
     magic_link.py           Step 11 — signed 15-minute portal links
     synthetic_retry_data.py Step 12 — labeled synthetic training data generator
+    real_retry_data.py      Step 12 roadmap — real-data extraction, time-based split
     retry_model.py          Step 12 — loads the trained model, predicts retry timing
     ml_artifacts/            Step 12 — retry_model.joblib + retry_model_meta.json (generated, not hand-written)
     main.py                 Step 9 — FastAPI app wiring
@@ -414,12 +469,15 @@ that's an acceptable tradeoff for now — revisit before any real deployment.
 1. ~~Replace the seed script with a real Stripe test-mode webhook listener.~~ **Done** — see Section 3, Step 10 and Section 5.
 2. ~~Add the JWT magic-link "update your card" portal.~~ **Done** — see Section 3, Step 11.
 3. ~~Build the retry-timing model.~~ **Done, but on synthetic data** — see Section
-   3, Step 12. `RETRY_MODEL_ENABLED` stays `false` by default. Flip it to `true`
-   only once `RecoveryAction` rows from real usage exist and the model has been
-   retrained on them (see Step 12's retraining note) — enabling it on the
-   synthetic model in production would mean trusting invented timing
-   assumptions with real customer emails.
-4. Before any public deployment: tighten CORS in `main.py`, replace
+   3, Step 12. The real-data pipeline (extraction, time-based split, calibration
+   check) is also built and verified — see the "Real-data roadmap" subsection.
+   `RETRY_MODEL_ENABLED` stays `false` until Phase 1-5 of that roadmap are
+   actually followed with real volume, not just because the code exists.
+4. Add `card_brand` and `card_country` capture from the Stripe webhook payload
+   (`routers/webhooks.py`) — both currently unused but present in real Stripe
+   events, and likely a bigger signal than the time-of-day features currently
+   used.
+5. Before any public deployment: tighten CORS in `main.py`, replace
    `STRIPE_WEBHOOK_SECRET` and `MAGIC_LINK_SECRET`'s local-dev defaults with real
    secrets, and plan the Next 16 upgrade to clear the remaining `npm audit`
    advisories.

@@ -1,8 +1,8 @@
 {
   "is_synthetic": true,
   "warning": "Trained entirely on simulated labels (app/synthetic_retry_data.py), not real recovery outcomes. Treat as a pipeline demonstration, not a source of real predictive lift over retry_rules.py. See README Step 12.",
-  "trained_at": "2026-08-24T09:26:24.982869",
-  "n_samples": 20000,
+  "trained_at": "2026-08-25T05:47:44.036411",
+  "n_samples": 3000,
   "features": [
     "attempt_number",
     "health_score",
@@ -24,6 +24,7 @@
     "do_not_honor",
     "pickup_card"
   ],
-  "test_auc": 0.7125,
-  "test_accuracy": 0.6801
+  "test_auc": 0.6301,
+  "test_accuracy": 0.6161,
+  "test_brier_score": 0.2473
 }

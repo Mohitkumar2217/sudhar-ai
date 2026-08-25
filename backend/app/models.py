@@ -71,11 +71,19 @@ class RecoveryAction(Base):
 
     id = Column(String, primary_key=True, default=gen_uuid)
     invoice_id = Column(String, ForeignKey("failed_invoices.id", ondelete="CASCADE"), nullable=False)
-    action_type = Column(String(50), nullable=False)  # HEADLESS_RETRY / DUNNING_EMAIL
+    action_type = Column(String(50), nullable=False)  # HEADLESS_RETRY / DUNNING_EMAIL / CARD_UPDATED
     channel = Column(String(50))
     message_subject = Column(Text)
     message_body = Column(Text)
     is_successful = Column(Boolean)
+
+    # Snapshotted at the moment this action was taken — NOT joined live from
+    # FailedInvoice, because attempt_count and decline context can change after
+    # the fact. Training data extraction depends on these being the value AT
+    # THE TIME of this specific attempt, not the invoice's current/final state.
+    attempt_number = Column(Integer)
+    decline_code_snapshot = Column(String(100))
+    health_score_snapshot = Column(Numeric(3, 2))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     invoice = relationship("FailedInvoice", back_populates="actions")

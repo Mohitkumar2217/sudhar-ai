@@ -72,7 +72,9 @@ def classify_invoice(invoice: FailedInvoice, customer: Customer, now: datetime |
 
 
 def _log_action(db: Session, invoice: FailedInvoice, action_type: str, channel: str | None,
-                 subject: str | None, body: str | None, success: bool) -> None:
+                 subject: str | None, body: str | None, success: bool,
+                 attempt_number: int | None = None, decline_code: str | None = None,
+                 health_score: float | None = None) -> None:
     db.add(RecoveryAction(
         invoice_id=invoice.id,
         action_type=action_type,
@@ -80,6 +82,9 @@ def _log_action(db: Session, invoice: FailedInvoice, action_type: str, channel: 
         message_subject=subject,
         message_body=body,
         is_successful=success,
+        attempt_number=attempt_number,
+        decline_code_snapshot=decline_code,
+        health_score_snapshot=health_score,
     ))
 
 
@@ -138,7 +143,15 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
         _, rate = _next_retry_schedule(invoice, customer, now)
         success = _simulate_headless_retry(rate)
         processed["retries_attempted"] += 1
-        _log_action(db, invoice, "HEADLESS_RETRY", None, None, None, success)
+        # Snapshot attempt_count/decline_code/health_score NOW — invoice.attempt_count
+        # is about to be incremented below on failure, and health_score could drift
+        # later in a real deployment. Training data must reflect state AT this attempt.
+        _log_action(
+            db, invoice, "HEADLESS_RETRY", None, None, None, success,
+            attempt_number=invoice.attempt_count,
+            decline_code=invoice.raw_decline_code,
+            health_score=float(customer.health_score or 1.0),
+        )
 
         if success:
             invoice.status = "RECOVERED"
