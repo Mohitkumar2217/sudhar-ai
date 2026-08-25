@@ -17,7 +17,7 @@ export default function MetricCard({
     tone === "gold" ? "text-gold" : tone === "rust" ? "text-rust" : "text-ink";
 
   return (
-    <div className="bg-panel border border-panelBorder rounded-lg p-5 flex flex-col gap-2">
+    <div className="section-3d-item bg-panel border border-panelBorder rounded-lg p-5 flex flex-col gap-2">
       <span className="font-display text-[11px] tracking-[0.14em] uppercase text-muted">
         {label}
       </span>

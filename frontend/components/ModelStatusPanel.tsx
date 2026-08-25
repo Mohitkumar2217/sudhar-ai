@@ -5,7 +5,7 @@ export default function ModelStatusPanel({ status }: { status: ModelStatus | nul
 
   if (!status.trained) {
     return (
-      <div className="bg-panel border border-panelBorder rounded-lg p-5">
+      <div className="section-3d-item bg-panel border border-panelBorder rounded-lg p-5">
         <h2 className="font-display text-sm font-semibold text-ink mb-2">
           Retry-timing model
         </h2>
@@ -29,7 +29,7 @@ export default function ModelStatusPanel({ status }: { status: ModelStatus | nul
     : "unknown date";
 
   return (
-    <div className="bg-panel border border-panelBorder rounded-lg p-5">
+    <div className="section-3d-item bg-panel border border-panelBorder rounded-lg p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-display text-sm font-semibold text-ink">
           Retry-timing model

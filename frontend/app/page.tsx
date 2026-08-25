@@ -120,7 +120,7 @@ export default function DashboardPage() {
       )}
 
       {/* Metric cards */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <section className="section-3d grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <MetricCard
           label="Revenue at risk"
           value={loading ? "—" : formatCents(summary?.revenue_at_risk_cents ?? 0)}
@@ -142,8 +142,8 @@ export default function DashboardPage() {
       </section>
 
       {/* Main grid: invoices + side column */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
-        <div className="lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5">
+      <section className="section-3d grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
+        <div className="section-3d-item lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5">
           <h2 className="font-display text-sm font-semibold text-ink mb-3">
             Failed invoices
           </h2>
@@ -160,7 +160,7 @@ export default function DashboardPage() {
           <ModelStatusPanel status={modelStatus} />
 
           {summary && summary.top_failure_reasons.length > 0 && (
-            <div className="bg-panel border border-panelBorder rounded-lg p-5">
+            <div className="section-3d-item bg-panel border border-panelBorder rounded-lg p-5">
               <h2 className="font-display text-sm font-semibold text-ink mb-2">
                 Top failure reasons
               </h2>
@@ -171,15 +171,15 @@ export default function DashboardPage() {
       </section>
 
       {/* Activity feed + copilot */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2 bg-panel border border-panelBorder rounded-lg p-5 max-h-[420px] overflow-y-auto">
+      <section className="section-3d grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="section-3d-item lg:col-span-2 bg-panel border border-panelBorder rounded-lg p-5 max-h-[420px] overflow-y-auto">
           <h2 className="font-display text-sm font-semibold text-ink mb-1">
             Recent activity
           </h2>
           <ActivityFeed actions={activity} />
         </div>
 
-        <div className="lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5 flex flex-col min-h-[420px]">
+        <div className="section-3d-item lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5 flex flex-col min-h-[420px]">
           <h2 className="font-display text-sm font-semibold text-ink mb-3">
             CFO Copilot
           </h2>

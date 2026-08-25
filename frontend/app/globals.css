@@ -14,6 +14,18 @@ body {
   color: #2e2224;
 }
 
+* {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 body {
   font-family: "Inter", sans-serif;
 }
@@ -27,6 +39,17 @@ body {
 :focus-visible {
   outline: 2px solid #7b3b49;
   outline-offset: 2px;
+}
+
+.section-3d-item {
+  transform: translateZ(0);
+  transform-style: preserve-3d;
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.section-3d-item:hover {
+  transform: translateY(-4px) rotateX(1deg) rotateY(-0.7deg);
+  box-shadow: 0 14px 24px rgba(46, 34, 36, 0.1);
 }
 
 @media (prefers-reduced-motion: reduce) {
