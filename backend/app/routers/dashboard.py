@@ -8,6 +8,7 @@ from app.models import FailedInvoice, RecoveryAction
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 ACTIVE_STATUSES = ("PENDING", "SCHEDULED_RETRY", "DUNNING_ACTIVE")
+PIPELINE_STAGES = ("PENDING", "SCHEDULED_RETRY", "DUNNING_ACTIVE", "RECOVERED", "FAILED_EXHAUSTED")
 
 
 @router.get("/summary")
@@ -39,12 +40,23 @@ def summary(db: Session = Depends(get_db)):
         db.query(RecoveryAction).order_by(RecoveryAction.created_at.desc()).limit(10).all()
     )
 
+    # Live per-stage counts for the recovery pipeline view. Queried fresh on
+    # every call (no caching) so an admin watching in live mode sees invoices
+    # actually move between stages as recovery cycles run.
+    raw_counts = dict(
+        db.query(FailedInvoice.status, func.count(FailedInvoice.id))
+        .group_by(FailedInvoice.status)
+        .all()
+    )
+    pipeline_counts = {stage: raw_counts.get(stage, 0) for stage in PIPELINE_STAGES}
+
     return {
         "revenue_at_risk_cents": at_risk_cents,
         "revenue_recovered_cents": recovered_cents,
         "revenue_exhausted_cents": exhausted_cents,
         "recovery_rate": recovery_rate,
         "top_failure_reasons": [{"reason": r, "count": c} for r, c in top_failure_reasons],
+        "pipeline_counts": pipeline_counts,
         "recent_actions": [
             {
                 "invoice_id": a.invoice_id,

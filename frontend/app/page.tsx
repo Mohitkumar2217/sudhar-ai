@@ -5,10 +5,11 @@ import { api, DashboardSummary, Invoice, ModelStatus, ActivityAction, formatCent
 import MetricCard from "@/components/MetricCard";
 import PulseLine from "@/components/PulseLine";
 import InvoiceTable from "@/components/InvoiceTable";
-import CopilotPanel from "@/components/CopilotPanel";
+import CopilotWidget from "@/components/CopilotWidget";
 import ModelStatusPanel from "@/components/ModelStatusPanel";
 import FailureReasonsChart from "@/components/FailureReasonsChart";
 import ActivityFeed from "@/components/ActivityFeed";
+import RecoveryPipeline from "@/components/RecoveryPipeline";
 
 const LIVE_REFRESH_MS = 10000;
 
@@ -20,7 +21,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [cycling, setCycling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [liveMode, setLiveMode] = useState(false);
+  const [liveMode, setLiveMode] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
 
@@ -141,6 +142,11 @@ export default function DashboardPage() {
         />
       </section>
 
+      {/* Live recovery pipeline — the real-time view of invoices moving through stages */}
+      <section className="mb-6">
+        <RecoveryPipeline counts={summary?.pipeline_counts ?? {}} live={liveMode} />
+      </section>
+
       {/* Main grid: invoices + side column */}
       <section className="section-3d grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
         <div className="section-3d-item lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5">
@@ -170,22 +176,18 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Activity feed + copilot */}
-      <section className="section-3d grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="section-3d-item lg:col-span-2 bg-panel border border-panelBorder rounded-lg p-5 max-h-[420px] overflow-y-auto">
+      {/* Activity feed */}
+      <section className="section-3d">
+        <div className="section-3d-item bg-panel border border-panelBorder rounded-lg p-5 max-h-[420px] overflow-y-auto">
           <h2 className="font-display text-sm font-semibold text-ink mb-1">
             Recent activity
           </h2>
           <ActivityFeed actions={activity} />
         </div>
-
-        <div className="section-3d-item lg:col-span-3 bg-panel border border-panelBorder rounded-lg p-5 flex flex-col min-h-[420px]">
-          <h2 className="font-display text-sm font-semibold text-ink mb-3">
-            CFO Copilot
-          </h2>
-          <CopilotPanel />
-        </div>
       </section>
+
+      {/* CFO Copilot: floating icon, opens on demand instead of an always-visible panel */}
+      <CopilotWidget />
     </main>
   );
 }

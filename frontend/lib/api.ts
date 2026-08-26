@@ -22,6 +22,7 @@ export type DashboardSummary = {
   revenue_exhausted_cents: number;
   recovery_rate: number | null;
   top_failure_reasons: { reason: string; count: number }[];
+  pipeline_counts: Record<string, number>;
   recent_actions: {
     invoice_id: string;
     action_type: string;
