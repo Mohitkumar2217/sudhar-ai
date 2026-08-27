@@ -1,35 +1,56 @@
 """
-Thin wrapper around the Anthropic API for the two LLM touchpoints in this app:
+Thin wrapper around the Groq API for every LLM touchpoint in this app:
 1. Dunning email copywriting (non-punitive, friendly tone)
-2. CFO Copilot synthesis (summarizing SQL results in plain English)
+2. CFO Copilot — both SQL generation (routers/copilot.py) and result synthesis
 
-Both fall back to a static template if ANTHROPIC_API_KEY isn't set, so the rest
-of the app is runnable and testable without any API access.
+Everything routes through call_llm() below. Previously, copilot.py's SQL
+generation constructed its own Anthropic client and duplicated the
+request/fallback logic instead of sharing this module's — that duplication is
+exactly how one call site ended up with error handling and another didn't
+(the bug that surfaced when the account's credit balance ran out). There's
+now exactly one client, one request path, one fallback behavior.
 """
 import os
 import json
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+# Accepts either env var name: GROQ_API_KEY is the one documented in
+# .env.example going forward; GROQ is kept for backward compatibility with
+# any existing .env file already using that name.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("GROQ")
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 _client = None
-if ANTHROPIC_API_KEY:
+if GROQ_API_KEY:
     try:
-        import anthropic
-        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    except ImportError:
+        from groq import Groq
+        _client = Groq(api_key=GROQ_API_KEY)
+    except Exception as e:
+        # Any failure here (missing package, bad key format, etc.) must
+        # degrade to offline fallback mode, not crash the whole app at import
+        # time — this module is imported by recovery_engine.py, so a crash
+        # here takes down every endpoint, not just the copilot.
+        print(f"[llm] Groq client unavailable, falling back to offline mode: {e}")
         _client = None
 
 
-def _call_claude(prompt: str, max_tokens: int = 500) -> str | None:
+def call_llm(prompt: str, max_tokens: int = 500) -> str | None:
+    """Returns the model's text response, or None if no client is configured
+    or the API call fails for any reason (no credit balance, rate limit,
+    network error, bad model name, etc.). Every caller in this file and in
+    routers/copilot.py must treat None as "use the offline fallback" —
+    nothing here ever raises out to the request handler."""
     if not _client:
         return None
-    response = _client.messages.create(
-        model=MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return "".join(block.text for block in response.content if block.type == "text")
+    try:
+        response = _client.chat.completions.create(
+            model=MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"[llm] Groq API call failed, falling back to offline mode: {e}")
+        return None
 
 
 def generate_dunning_copy(customer_name: str, product_name: str, update_link: str, days_overdue: int) -> dict:
@@ -46,7 +67,7 @@ Rules:
 - Emphasize continuity of service and a quick 1-click update.
 - Respond with ONLY a JSON object: {{"subject": "...", "body_text": "..."}}"""
 
-    raw = _call_claude(prompt, max_tokens=300)
+    raw = call_llm(prompt, max_tokens=300)
     if raw:
         try:
             cleaned = raw.strip().removeprefix("```json").removesuffix("```").strip()
@@ -76,7 +97,7 @@ Rows: {rows}
 Lead with the key number(s), name the top driver if visible in the data, and give one
 concrete recommendation. Keep it under 120 words."""
 
-    raw = _call_claude(prompt, max_tokens=300)
+    raw = call_llm(prompt, max_tokens=300)
     if raw:
         return raw.strip()
 

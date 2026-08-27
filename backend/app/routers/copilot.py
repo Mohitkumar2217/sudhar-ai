@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.llm import ANTHROPIC_API_KEY, MODEL, synthesize_copilot_answer
+from app.llm import synthesize_copilot_answer, call_llm
 
 router = APIRouter(prefix="/copilot", tags=["copilot"])
 
@@ -44,6 +44,9 @@ def sanitize_sql(sql: str) -> str:
     return sql
 
 
+FALLBACK_SQL = "SELECT status, COUNT(*) as count FROM failed_invoices GROUP BY status"
+
+
 def generate_sql(question: str) -> str:
     prompt = f"""Generate ONLY a valid SQL SELECT query (SQLite/Postgres-compatible) for this schema:
 {SCHEMA_DESCRIPTION}
@@ -51,19 +54,14 @@ def generate_sql(question: str) -> str:
 Question: {question}
 Output only the raw SQL inside a ```sql code block. No explanation."""
 
-    if not ANTHROPIC_API_KEY:
+    raw = call_llm(prompt, max_tokens=300)
+    if not raw:
         # Offline fallback: a safe, generic query so the endpoint stays testable
-        # without an API key. Not a real NL-to-SQL substitute.
-        return "SELECT status, COUNT(*) as count FROM failed_invoices GROUP BY status"
+        # without an API key, and the same path a billing/rate-limit/network
+        # failure falls back to — call_llm() already handles that distinction
+        # internally, so this function doesn't need its own try/except.
+        return FALLBACK_SQL
 
-    import anthropic
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = "".join(b.text for b in response.content if b.type == "text")
     match = re.search(r"```sql(.*?)```", raw, re.DOTALL)
     return (match.group(1).strip() if match else raw.strip())
 
