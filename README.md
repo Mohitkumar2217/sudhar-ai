@@ -91,11 +91,19 @@ eligible state — which is what makes a cron job (or a manual "run cycle" butto
 an adequate substitute for a workflow engine at this scale.
 
 ### Step 5 — LLM integration (`app/llm.py`)
-One thin wrapper around the Groq API used in exactly two places: writing
-non-punitive dunning email copy, and summarizing SQL results for the CFO Copilot.
-Both functions check for `GROQ_API_KEY` and fall back to a static template if
-it's missing, so the rest of the app — and anyone reviewing this code — can run and
-test it without needing an API key.
+Originally an Anthropic wrapper, migrated to Groq (`llama-3.3-70b-versatile` by
+default). One shared `call_llm()` function used everywhere an LLM is needed —
+dunning email copy, CFO Copilot SQL generation, and result synthesis all route
+through it, so there's exactly one client, one request path, and one fallback
+behavior. That consolidation happened *because* the earlier version had
+`copilot.py` build its own separate client with its own (missing) error
+handling — the exact bug that caused a 500 instead of a graceful fallback when
+the account's credit balance ran out. `call_llm()` returns `None` on any
+failure (missing key, bad SDK/dependency versions, no credit balance, rate
+limit, network error), and every caller has a static-template fallback for
+that case — so the app runs and is fully testable with zero API key configured.
+Accepts either `GROQ_API_KEY` or `GROQ` as the env var name, for compatibility
+with `.env` files already using the shorter name.
 
 ### Step 6 — Email delivery (`app/email_sender.py`)
 Sends through Resend's API if `RESEND_API_KEY` is set; otherwise logs the email to
@@ -117,9 +125,9 @@ Three route groups:
   recovered, recovery rate, top failure reasons, and the most recent actions taken.
   All computed with plain SQL aggregates — no caching layer needed yet.
 - **`copilot.py`** — the CFO Copilot. Takes a natural-language question, asks
-   Groq to generate a SQL `SELECT` against a fixed schema description, runs it
+  Claude to generate a SQL `SELECT` against a fixed schema description, runs it
   through `sanitize_sql()` (blocks any mutation keyword and anything that isn't a
-   `SELECT`), executes it, and asks Groq to summarize *only* the returned rows.
+  `SELECT`), executes it, and asks Claude to summarize *only* the returned rows.
   This is the project's strongest feature because the guardrail is simple but the
   result feels intelligent: the model never gets to assert a number that isn't
   backed by an actual query result.
@@ -291,6 +299,81 @@ the pipeline.
    watch for the decline-code distribution shifting enough to invalidate the
    training window.
 
+### Step 13 — Fraud signal: a real classifier and a heuristic that actually integrates (`scripts/train_fraud_demo_model.py`, `app/fraud_heuristic.py`, `scripts/analyze_churn_correlations.py`)
+
+Built from three real, uploaded datasets — but each used only for what it
+honestly supports, not stretched to cover a gap it can't fill.
+
+**What the datasets actually contained, checked before building anything:**
+`train_identity.csv`/`test_identity.csv` (IEEE-CIS) turned out to have **no
+fraud label** — that's the identity-only file (device/browser fingerprints
+keyed by `TransactionID`); the real `isFraud` label lives in a separate
+`train_transaction.csv` that wasn't provided. No supervised model can be
+honestly trained from those two files alone, so none was. `creditcard.csv`
+(ULB) and the Telco churn CSV both have genuine labels and were used for real.
+
+**`scripts/train_fraud_demo_model.py`** trains a `HistGradientBoostingClassifier`
+(`class_weight="balanced"`, since fraud is 0.17% of the data — a naive model
+gets 99.8% accuracy by predicting "not fraud" for everything, which is exactly
+the failure mode this guards against) on the real ULB dataset. Real results,
+not cherry-picked: **ROC-AUC 0.977, Average Precision 0.724** (more meaningful
+than AUC at this class imbalance), **Recall 0.88, Precision 0.28** — the
+model catches 88% of fraud at the cost of more false positives, a reasonable
+trade when a missed fraud costs more than a manual review. The model and its
+metadata are saved with `"compatible_with_sudhar_schema": false` set
+explicitly — its features (`V1`-`V28`, PCA-anonymized components from an
+unrelated card network, plus `Amount`) have no equivalent for a Sudhar AI
+`FailedInvoice`, so nothing downstream can accidentally wire it in.
+
+**`app/fraud_heuristic.py`** is the piece that actually integrates, at the
+cost of being a heuristic rather than a trained model — no labeled fraud data
+exists for Sudhar AI's own transactions, and training on invented labels here
+would repeat the exact "a model can't be smarter than its labels" problem
+already documented for the retry-timing model. It scores three explicit,
+auditable signals: a brand-new customer with a high-value charge, 3+ distinct
+failed invoices from one customer within an hour (the real card-testing
+signature — legitimate retries are naturally hours/days apart because
+`retry_rules.py` enforces that backoff, so rapid activity across *different*
+invoices for one customer is the anomalous pattern, not attempt frequency on
+one invoice), and very low engagement. `recovery_engine.py`'s
+`classify_invoice()` now runs this check first — a flagged invoice is routed
+to a new `FRAUD_REVIEW` status with a human-readable reason logged, and never
+reaches retry or dunning.
+
+**Verified with a real crafted scenario, not just unit-level logic:** created
+4 card-testing-shaped invoices (brand-new customer, $999 charges, 4 failed
+attempts within minutes) alongside the normal 200-invoice seed data, ran a
+real recovery cycle, and confirmed: all 4 fraud-shaped invoices correctly
+flagged with accurate, human-readable reasons; **zero false positives** on
+the 200 normal invoices.
+
+**`scripts/analyze_churn_correlations.py`** checks the real Telco churn
+dataset against the *direction* (not the exact thresholds) of
+`decline_taxonomy.py`'s existing churn-override heuristic. Real numbers:
+churn falls from 56% (0-3 month tenure) to 14% (25+ months), and from 43%
+(month-to-month contracts) to 2.8% (two-year contracts) — monotonic, and
+large enough to be real signal rather than noise. This doesn't calibrate the
+heuristic's exact cutoffs (SaaS days-active and telecom tenure/contract-length
+aren't the same measurement), but it does confirm the underlying assumption —
+low engagement predicts churn — is grounded in real, independent data rather
+than invented. Added as a comment directly on the heuristic in
+`decline_taxonomy.py` so the reasoning travels with the code.
+
+**Frontend updated to match:** `StatusPill`, `RecoveryPipeline`, and
+`ActivityFeed` all handle the new `FRAUD_REVIEW` status and `FRAUD_FLAGGED`
+action type. One real bug caught while wiring this up: the activity feed's
+status dot defaulted to gold ("success") for any action without an explicit
+`is_successful === false`, which silently included fraud flags (which have no
+success/fail concept at all) — fixed to treat `FRAUD_FLAGGED` as an alert
+regardless of that field.
+
+**A note on the data files:** `data/creditcard.csv` (~144MB, the raw ULB
+dataset) is intentionally not included in this delivery to keep it a
+reasonable size — see `backend/data/README.md` for how to add it back if you
+want to retrain. The much smaller Telco churn CSV (~1MB) is included, along
+with the already-trained fraud model artifact, which works without the raw
+CSV present.
+
 ---
 
 ## 4. Quickstart
@@ -321,10 +404,10 @@ Then:
 | `GET /model/status` | Retry-model training status — trained/enabled, synthetic-vs-real, test metrics |
 | `GET /invoices/actions?limit=` | Recent recovery-action feed with customer/invoice context |
 
-No keys required to run the full loop end to end. Set `GROQ_API_KEY` to get
-real AI-generated dunning copy and real natural-language copilot answers instead of
-the static fallbacks; set `RESEND_API_KEY` to actually send the emails instead of
-logging them.
+No keys required to run the full loop end to end. Set `GROQ_API_KEY` (or `GROQ`)
+to get real AI-generated dunning copy and real natural-language copilot answers
+instead of the static fallbacks; set `RESEND_API_KEY` to actually send the
+emails instead of logging them.
 
 ## 5. Testing the webhook path
 
@@ -364,7 +447,7 @@ backend/
     decline_taxonomy.py     Step 2 — deterministic classification
     retry_rules.py          Step 3 — retry timing + compliance guardrails
     recovery_engine.py      Step 4 — the core classify -> decide -> act loop
-      llm.py                  Step 5 — Groq wrapper (dunning copy + copilot synthesis)
+    llm.py                  Step 5 — Groq wrapper (dunning copy + copilot synthesis; see Groq migration note below)
     email_sender.py         Step 6 — Resend integration
     seed.py                 Step 7 — fake data generator
     stripe_signature.py     Step 10 — HMAC verification (and signing, for tests)
@@ -372,7 +455,8 @@ backend/
     synthetic_retry_data.py Step 12 — labeled synthetic training data generator
     real_retry_data.py      Step 12 roadmap — real-data extraction, time-based split
     retry_model.py          Step 12 — loads the trained model, predicts retry timing
-    ml_artifacts/            Step 12 — retry_model.joblib + retry_model_meta.json (generated, not hand-written)
+    fraud_heuristic.py      Step 13 — the fraud signal that actually integrates
+    ml_artifacts/            generated model + metadata files (Steps 12 and 13), not hand-written
     main.py                 Step 9 — FastAPI app wiring
     routers/
       invoices.py           Step 8
@@ -381,9 +465,14 @@ backend/
       webhooks.py            Step 10 — real Stripe webhook ingestion
       portal.py               Step 11 — magic-link portal API
       model_status.py         Dashboard "advanced features" pass — GET /model/status
+  data/
+    WA_Fn-UseC_-Telco-Customer-Churn.csv   Real churn data for Step 13's validation check
+    README.md                              Notes on creditcard.csv, excluded from this delivery
   scripts/
     send_test_webhook.py    Sends a real signed webhook for local testing
     train_retry_model.py    Step 12 — trains and saves the retry-timing model
+    train_fraud_demo_model.py   Step 13 — real classifier on creditcard.csv (standalone, not integrated)
+    analyze_churn_correlations.py   Step 13 — validates the churn heuristic's direction against real data
 ```
 
 ## 7. Verified working (already tested)
@@ -400,7 +489,20 @@ showing `already_recovered`, and a rejected garbage token — plus a clean
 `npm run build` for the new `/update` route. The synthetic retry model (Section
 3, Step 12) was trained and evaluated (AUC 0.71), confirmed to change actual
 scheduling behavior when `RETRY_MODEL_ENABLED=true` vs. the heuristic when
-`false`, and confirmed to fall back to the heuristic cleanly.
+`false`, and confirmed to fall back to the heuristic cleanly. The Groq
+migration (Step 5) was verified end to end after two real bugs surfaced and
+were fixed: `.env` wasn't being loaded at all (`python-dotenv` added,
+`load_dotenv()` called before any other module import), and the old
+Anthropic-specific `copilot.py` code had no error handling around its own API
+call — fixed by consolidating onto the shared `call_llm()`, then confirmed the
+whole request path degrades to the offline fallback cleanly (verified against
+a real account with no credit balance, and separately against a sandbox with
+`api.groq.com` unreachable — same clean-fallback result both times, no crash).
+Step 13's fraud heuristic was verified with a real crafted card-testing
+scenario — 4/4 correctly flagged with accurate reasons, 0 false positives
+across 200 normal invoices — and the standalone fraud classifier's metrics
+(ROC-AUC 0.977, Average Precision 0.724) are real training-run output, not
+illustrative numbers.
 
 ## 8. The dashboard (`frontend/`)
 
@@ -509,7 +611,16 @@ that's an acceptable tradeoff for now — revisit before any real deployment.
    (`routers/webhooks.py`) — both currently unused but present in real Stripe
    events, and likely a bigger signal than the time-of-day features currently
    used.
-5. Before any public deployment: tighten CORS in `main.py`, replace
+5. ~~Fraud signal.~~ **Done, split honestly in two** — see Section 3, Step 13.
+   A real classifier trained on `creditcard.csv` (verifiable metrics, but not
+   integrable — wrong feature space) plus a heuristic that actually gates the
+   recovery engine (`app/fraud_heuristic.py`). If `train_transaction.csv` (the
+   IEEE-CIS file with the actual `isFraud` label) ever becomes available, that
+   would be the natural next step — a real classifier on data that's actually
+   labeled for this exact problem, unlike `train_identity.csv` alone.
+6. ~~Migrate off Anthropic.~~ **Done** — see Step 5. Groq client, one shared
+   `call_llm()` call path, verified to degrade cleanly on any failure.
+7. Before any public deployment: tighten CORS in `main.py`, replace
    `STRIPE_WEBHOOK_SECRET` and `MAGIC_LINK_SECRET`'s local-dev defaults with real
    secrets, and plan the Next 16 upgrade to clear the remaining `npm audit`
    advisories.

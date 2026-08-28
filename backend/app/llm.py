@@ -16,8 +16,8 @@ import json
 # Accepts either env var name: GROQ_API_KEY is the one documented in
 # .env.example going forward; GROQ is kept for backward compatibility with
 # any existing .env file already using that name.
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("GROQ")
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 _client = None
 if GROQ_API_KEY:

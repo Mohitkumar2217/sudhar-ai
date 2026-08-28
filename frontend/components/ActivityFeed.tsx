@@ -4,6 +4,7 @@ const ACTION_LABELS: Record<string, string> = {
   DUNNING_EMAIL: "Dunning email sent",
   HEADLESS_RETRY: "Silent retry attempted",
   CARD_UPDATED: "Card updated via portal",
+  FRAUD_FLAGGED: "Flagged for fraud review",
 };
 
 function timeAgo(iso: string): string {
@@ -40,7 +41,7 @@ export default function ActivityFeed({ actions }: { actions: ActivityAction[] })
           <div className="flex flex-col items-end shrink-0">
             <span
               className={`w-2 h-2 rounded-full ${
-                a.is_successful === false ? "bg-rust" : "bg-gold"
+                a.is_successful === false || a.action_type === "FRAUD_FLAGGED" ? "bg-rust" : "bg-gold"
               }`}
               aria-hidden="true"
             />

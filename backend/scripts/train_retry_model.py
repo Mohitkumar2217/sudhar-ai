@@ -154,3 +154,4 @@ if __name__ == "__main__":
         train_on_synthetic(n_samples=args.n_samples)
     else:
         train_on_real()
+

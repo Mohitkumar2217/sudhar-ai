@@ -6,6 +6,7 @@ const STATUS_OPTIONS = [
   { value: "PENDING", label: "Pending" },
   { value: "SCHEDULED_RETRY", label: "Retry scheduled" },
   { value: "DUNNING_ACTIVE", label: "Dunning active" },
+  { value: "FRAUD_REVIEW", label: "Fraud review" },
   { value: "RECOVERED", label: "Recovered" },
   { value: "FAILED_EXHAUSTED", label: "Exhausted" },
 ];

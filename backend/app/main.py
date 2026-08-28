@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
-load_dotenv()  
+load_dotenv()  # MUST run before any app.* import — several modules (llm.py,
+                # db.py) read os.getenv(...) at import time, so loading .env
+                # after those imports would be too late to affect them.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

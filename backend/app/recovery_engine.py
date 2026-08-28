@@ -19,6 +19,7 @@ from app.llm import generate_dunning_copy
 from app.email_sender import send_dunning_email
 from app.magic_link import generate_magic_link
 from app.retry_model import predict_best_retry_delay_hours, RetryModelUnavailable
+from app.fraud_heuristic import fraud_risk_score, explain_score, count_recent_failed_invoices, FRAUD_REVIEW_THRESHOLD
 
 # Off by default. When true, retry timing comes from the trained model in
 # app/retry_model.py INSTEAD of the retry_rules.py heuristic — see README Step 12
@@ -53,9 +54,26 @@ def _next_retry_schedule(invoice: FailedInvoice, customer: Customer, now: dateti
     return next_retry_at(invoice.attempt_count, now), heuristic_rate
 
 
-def classify_invoice(invoice: FailedInvoice, customer: Customer, now: datetime | None = None) -> None:
-    """Runs the deterministic diagnostic engine and writes the result onto the invoice."""
+def classify_invoice(db: Session, invoice: FailedInvoice, customer: Customer, now: datetime | None = None) -> None:
+    """Runs the fraud check first, then the deterministic diagnostic engine.
+    A flagged invoice never reaches retry or dunning — it's routed to
+    FRAUD_REVIEW and held for a human, since neither silently retrying nor
+    emailing a card-testing target is the right move."""
     now = now or datetime.utcnow()
+
+    recent_count = count_recent_failed_invoices(db, customer.id, now)
+    risk = fraud_risk_score(invoice, customer, recent_count)
+    if risk >= FRAUD_REVIEW_THRESHOLD:
+        invoice.status = "FRAUD_REVIEW"
+        invoice.failure_type = "SUSPECTED_FRAUD"
+        reasons = "; ".join(explain_score(invoice, customer, recent_count)) or "Heuristic threshold exceeded"
+        _log_action(
+            db, invoice, "FRAUD_FLAGGED", None, None, reasons, success=None,
+            attempt_number=invoice.attempt_count, decline_code=invoice.raw_decline_code,
+            health_score=float(customer.health_score or 1.0),
+        )
+        return
+
     result = RootCauseDiagnosticEngine.analyze(
         raw_code=invoice.raw_decline_code,
         customer_health_score=float(customer.health_score or 1.0),
@@ -72,7 +90,7 @@ def classify_invoice(invoice: FailedInvoice, customer: Customer, now: datetime |
 
 
 def _log_action(db: Session, invoice: FailedInvoice, action_type: str, channel: str | None,
-                 subject: str | None, body: str | None, success: bool,
+                 subject: str | None, body: str | None, success: bool | None,
                  attempt_number: int | None = None, decline_code: str | None = None,
                  health_score: float | None = None) -> None:
     db.add(RecoveryAction(
@@ -98,13 +116,15 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
     """Advances every invoice that's due for action. Safe to call repeatedly (idempotent
     per invoice per tick) — call this from a cron job or a 'run recovery cycle' button."""
     now = now or datetime.utcnow()
-    processed = {"dunning_sent": 0, "retries_attempted": 0, "recovered": 0, "exhausted": 0}
+    processed = {"dunning_sent": 0, "retries_attempted": 0, "recovered": 0, "exhausted": 0, "fraud_flagged": 0}
 
     # New invoices that haven't been classified yet
     pending = db.query(FailedInvoice).filter(FailedInvoice.status == "PENDING").all()
     for invoice in pending:
         customer = db.query(Customer).get(invoice.customer_id)
-        classify_invoice(invoice, customer, now)
+        classify_invoice(db, invoice, customer, now)
+        if invoice.status == "FRAUD_REVIEW":
+            processed["fraud_flagged"] += 1
         invoice.updated_at = now
 
     db.commit()

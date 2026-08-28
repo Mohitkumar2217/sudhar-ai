@@ -2,6 +2,7 @@ const STATUS_STYLES: Record<string, string> = {
   PENDING: "bg-panelBorder text-muted",
   SCHEDULED_RETRY: "bg-goldDim text-gold",
   DUNNING_ACTIVE: "bg-rustDim text-rust",
+  FRAUD_REVIEW: "bg-rustDim text-rust font-semibold",
   RECOVERED: "bg-goldDim text-gold",
   FAILED_EXHAUSTED: "bg-rustDim text-rust",
 };
@@ -10,6 +11,7 @@ const STATUS_LABELS: Record<string, string> = {
   PENDING: "Pending",
   SCHEDULED_RETRY: "Retry scheduled",
   DUNNING_ACTIVE: "Dunning active",
+  FRAUD_REVIEW: "Fraud review",
   RECOVERED: "Recovered",
   FAILED_EXHAUSTED: "Exhausted",
 };

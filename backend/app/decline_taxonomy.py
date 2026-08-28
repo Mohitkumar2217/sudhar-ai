@@ -53,6 +53,14 @@ class RootCauseDiagnosticEngine:
 
         # Behavioral churn override: low engagement + low health score suggests
         # deliberate payment abandonment rather than a fixable payment problem.
+        #
+        # Direction validated (not the exact thresholds below) against real Telco
+        # churn data: churn rate falls from 56% (0-3mo tenure) to 14% (25mo+), and
+        # from 43% (month-to-month) to 2.8% (two-year contracts) — see
+        # scripts/analyze_churn_correlations.py. Different domain (SaaS days-active
+        # vs. telecom tenure/contract), so this confirms the ASSUMPTION that low
+        # engagement predicts churn is grounded in real data, not that these
+        # specific cutoffs (3 days, 0.30 score) are individually correct.
         if active_days_30d < 3 and customer_health_score < 0.30:
             domain = FailureDomain.CHURN_SUSPECT
             summary += " Low recent activity suggests likely voluntary churn, not a fixable payment issue."
