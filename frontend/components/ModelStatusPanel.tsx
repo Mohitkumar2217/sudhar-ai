@@ -47,8 +47,8 @@ export default function ModelStatusPanel({ status }: { status: ModelStatus | nul
         <div className="bg-rustDim border border-rust/30 rounded-md px-3 py-2 mb-3">
           <p className="text-xs text-rust font-body leading-relaxed">
             Trained on <strong>synthetic</strong> data — not real recovery
-            outcomes. Scheduling still uses the heuristic unless this is
-            explicitly enabled. See README Step 12.
+            outcomes. Scheduling still uses the heuristic while the model is
+            inactive.
           </p>
         </div>
       )}

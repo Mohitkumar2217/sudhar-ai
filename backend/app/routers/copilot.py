@@ -14,17 +14,17 @@ from app.llm import synthesize_copilot_answer, call_llm
 router = APIRouter(prefix="/copilot", tags=["copilot"])
 
 SCHEMA_DESCRIPTION = """
-Table: failed_invoices
-Columns: id, tenant_id, customer_id, invoice_id, amount_due_cents, currency,
-         raw_decline_code, iso_8583_code, failure_type, status, attempt_count,
-         next_action_scheduled_at, recovered_at, created_at
-
-Table: customers
-Columns: id, tenant_id, external_customer_id, email, name, mrr_cents,
-         health_score, days_active_past_30d
-
-Table: recovery_actions
-Columns: id, invoice_id, action_type, channel, is_successful, created_at
+    Table: failed_invoices
+    Columns: id, tenant_id, customer_id, invoice_id, amount_due_cents, currency,
+             raw_decline_code, iso_8583_code, failure_type, status, attempt_count,
+             next_action_scheduled_at, recovered_at, created_at
+    
+    Table: customers
+    Columns: id, tenant_id, external_customer_id, email, name, mrr_cents,
+             health_score, days_active_past_30d
+    
+    Table: recovery_actions
+    Columns: id, invoice_id, action_type, channel, is_successful, created_at
 """
 
 # Same safety rule as the original spec: block any mutation statement outright.

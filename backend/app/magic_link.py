@@ -9,7 +9,7 @@ import time
 
 import jwt
 
-MAGIC_LINK_SECRET = os.getenv("MAGIC_LINK_SECRET", "local_dev_magic_link_secret")
+MAGIC_LINK_SECRET = os.getenv("MAGIC_LINK_SECRET")
 PORTAL_BASE_URL = os.getenv("PORTAL_BASE_URL", "http://localhost:3000/update")
 TTL_SECONDS = 900  # 15 minutes
 

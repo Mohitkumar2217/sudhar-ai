@@ -12,10 +12,7 @@ now exactly one client, one request path, one fallback behavior.
 """
 import os
 import json
-
-# Accepts either env var name: GROQ_API_KEY is the one documented in
-# .env.example going forward; GROQ is kept for backward compatibility with
-# any existing .env file already using that name.
+ 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
@@ -24,11 +21,7 @@ if GROQ_API_KEY:
     try:
         from groq import Groq
         _client = Groq(api_key=GROQ_API_KEY)
-    except Exception as e:
-        # Any failure here (missing package, bad key format, etc.) must
-        # degrade to offline fallback mode, not crash the whole app at import
-        # time — this module is imported by recovery_engine.py, so a crash
-        # here takes down every endpoint, not just the copilot.
+    except Exception as e: 
         print(f"[llm] Groq client unavailable, falling back to offline mode: {e}")
         _client = None
 
@@ -55,17 +48,18 @@ def call_llm(prompt: str, max_tokens: int = 500) -> str | None:
 
 def generate_dunning_copy(customer_name: str, product_name: str, update_link: str, days_overdue: int) -> dict:
     prompt = f"""You are a customer success copywriter. Write a short, friendly, frictionless
-transactional billing email.
-
-Customer: {customer_name}
-Product: {product_name}
-Days overdue: {days_overdue}
-Update link: {update_link}
-
-Rules:
-- Never use words like 'collections', 'terminated', 'failed payment', or 'delinquent'.
-- Emphasize continuity of service and a quick 1-click update.
-- Respond with ONLY a JSON object: {{"subject": "...", "body_text": "..."}}"""
+                 transactional billing email.
+                 
+                 Customer: {customer_name}
+                 Product: {product_name}
+                 Days overdue: {days_overdue}
+                 Update link: {update_link}
+                 
+                 Rules:
+                 - Never use words like 'collections', 'terminated', 'failed payment', or 'delinquent'.
+                 - Emphasize continuity of service and a quick 1-click update.
+                 - Respond with ONLY a JSON object: {{"subject": "...", "body_text": "..."}}
+                 """
 
     raw = call_llm(prompt, max_tokens=300)
     if raw:
@@ -87,16 +81,17 @@ Rules:
 
 def synthesize_copilot_answer(question: str, sql: str, columns: list, rows: list) -> str:
     prompt = f"""You are a CFO analyst. Answer this question using ONLY the data below —
-never invent numbers not present in the rows.
-
-Question: {question}
-SQL run: {sql}
-Columns: {columns}
-Rows: {rows}
-
-Lead with the key number(s), name the top driver if visible in the data, and give one
-concrete recommendation. Keep it under 120 words."""
-
+                 never invent numbers not present in the rows.
+                 
+                 Question: {question}
+                 SQL run: {sql}
+                 Columns: {columns}
+                 Rows: {rows}
+                 
+                 Lead with the key number(s), name the top driver if visible in the data, and give one
+                 concrete recommendation. Keep it under 120 words.
+                 """
+                 
     raw = call_llm(prompt, max_tokens=300)
     if raw:
         return raw.strip()
