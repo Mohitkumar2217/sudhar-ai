@@ -91,9 +91,9 @@ eligible state — which is what makes a cron job (or a manual "run cycle" butto
 an adequate substitute for a workflow engine at this scale.
 
 ### Step 5 — LLM integration (`app/llm.py`)
-One thin wrapper around the Anthropic API used in exactly two places: writing
+One thin wrapper around the Groq API used in exactly two places: writing
 non-punitive dunning email copy, and summarizing SQL results for the CFO Copilot.
-Both functions check for `ANTHROPIC_API_KEY` and fall back to a static template if
+Both functions check for `GROQ_API_KEY` and fall back to a static template if
 it's missing, so the rest of the app — and anyone reviewing this code — can run and
 test it without needing an API key.
 
@@ -117,9 +117,9 @@ Three route groups:
   recovered, recovery rate, top failure reasons, and the most recent actions taken.
   All computed with plain SQL aggregates — no caching layer needed yet.
 - **`copilot.py`** — the CFO Copilot. Takes a natural-language question, asks
-  Claude to generate a SQL `SELECT` against a fixed schema description, runs it
+   Groq to generate a SQL `SELECT` against a fixed schema description, runs it
   through `sanitize_sql()` (blocks any mutation keyword and anything that isn't a
-  `SELECT`), executes it, and asks Claude to summarize *only* the returned rows.
+   `SELECT`), executes it, and asks Groq to summarize *only* the returned rows.
   This is the project's strongest feature because the guardrail is simple but the
   result feels intelligent: the model never gets to assert a number that isn't
   backed by an actual query result.
@@ -321,7 +321,7 @@ Then:
 | `GET /model/status` | Retry-model training status — trained/enabled, synthetic-vs-real, test metrics |
 | `GET /invoices/actions?limit=` | Recent recovery-action feed with customer/invoice context |
 
-No keys required to run the full loop end to end. Set `ANTHROPIC_API_KEY` to get
+No keys required to run the full loop end to end. Set `GROQ_API_KEY` to get
 real AI-generated dunning copy and real natural-language copilot answers instead of
 the static fallbacks; set `RESEND_API_KEY` to actually send the emails instead of
 logging them.
@@ -364,7 +364,7 @@ backend/
     decline_taxonomy.py     Step 2 — deterministic classification
     retry_rules.py          Step 3 — retry timing + compliance guardrails
     recovery_engine.py      Step 4 — the core classify -> decide -> act loop
-    llm.py                  Step 5 — Anthropic wrapper (dunning copy + copilot synthesis)
+      llm.py                  Step 5 — Groq wrapper (dunning copy + copilot synthesis)
     email_sender.py         Step 6 — Resend integration
     seed.py                 Step 7 — fake data generator
     stripe_signature.py     Step 10 — HMAC verification (and signing, for tests)
