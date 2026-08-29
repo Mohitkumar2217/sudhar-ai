@@ -141,8 +141,8 @@ def process_due_invoices(db: Session, now: datetime | None = None) -> dict:
         customer = db.query(Customer).get(invoice.customer_id)
         tenant = db.query(Tenant).get(invoice.tenant_id)
         link = generate_magic_link(invoice.tenant_id, customer.id, invoice.id)
-        copy = generate_dunning_copy(customer.name or customer.email, tenant.name, link,
-                                      days_overdue=(now - invoice.created_at).days)
+        safe_created_at = invoice.created_at or now 
+        copy = generate_dunning_copy(customer.name or customer.email, tenant.name, link, days_overdue = (now - safe_created_at).days)
         sent = send_dunning_email(customer.email, copy["subject"], copy["body_text"])
         _log_action(db, invoice, "DUNNING_EMAIL", "EMAIL", copy["subject"], copy["body_text"], sent)
         processed["dunning_sent"] += 1

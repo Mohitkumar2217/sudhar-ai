@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { api, CopilotResponse } from "@/lib/api";
+import ReactMarkdown from 'react-markdown';
 
 const SUGGESTED_QUESTIONS = [
   "How much revenue is currently at risk?",
@@ -76,7 +77,9 @@ export default function CopilotPanel() {
         {history.map((entry, idx) => (
           <div key={idx} className="border-l-2 border-gold/40 pl-3">
             <p className="text-xs font-mono text-muted mb-1">{entry.question}</p>
-            <p className="text-sm text-ink leading-relaxed mb-2">{entry.answer}</p>
+            <div className="text-sm text-ink leading-relaxed mb-2 [&_strong]:text-gold [&_strong]:font-semibold">
+              <ReactMarkdown>{entry.answer}</ReactMarkdown>
+            </div>
             <details className="text-xs text-muted">
               <summary className="cursor-pointer hover:text-gold font-mono">
                 View query

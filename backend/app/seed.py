@@ -24,7 +24,7 @@ FIRST_NAMES = ["Aarav", "Priya", "Jordan", "Maya", "Liam", "Sofia", "Kenji", "Za
 LAST_NAMES = ["Sharma", "Patel", "Kim", "Garcia", "Novak", "Chen", "Reyes", "Khan", "Müller", "Brown"]
 
 
-def run(num_customers: int = 60, num_invoices: int = 200) -> None:
+def run(num_customers: int = 60, num_invoices: int = 500) -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
