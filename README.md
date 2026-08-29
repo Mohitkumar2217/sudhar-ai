@@ -1,12 +1,204 @@
 # Sudhar AI
 
+<p align="left">
+  <img alt="Python" src="https://img.shields.io/badge/backend-FastAPI-0B0E11?style=flat-square&logo=fastapi&logoColor=E8A23D&labelColor=101314" />
+  <img alt="Next.js" src="https://img.shields.io/badge/frontend-Next.js%2014-101314?style=flat-square&logo=next.js&logoColor=E8A23D&labelColor=101314" />
+  <img alt="DB" src="https://img.shields.io/badge/db-SQLite%20%7C%20Postgres-101314?style=flat-square&logo=postgresql&logoColor=E8A23D&labelColor=101314" />
+  <img alt="LLM" src="https://img.shields.io/badge/llm-Groq-101314?style=flat-square&labelColor=101314&color=101314" />
+  <img alt="Payments" src="https://img.shields.io/badge/payments-Stripe%20webhooks-101314?style=flat-square&logo=stripe&logoColor=E8A23D&labelColor=101314" />
+  <img alt="ML" src="https://img.shields.io/badge/ml-scikit--learn-101314?style=flat-square&logo=scikitlearn&logoColor=E8A23D&labelColor=101314" />
+  <img alt="Status" src="https://img.shields.io/badge/status-MVP%2C%20honestly%20labeled-C1584B?style=flat-square&labelColor=101314" />
+</p>
+
 **सुधार — "correction / improvement."** An autonomous revenue-recovery engine for B2B
 SaaS: it detects failed payments, figures out *why* they failed, decides the right
 recovery action (silent retry vs. dunning email vs. escalation), executes it, and
 answers plain-English finance questions through a guarded AI "CFO Copilot."
 
 This README documents what was actually built and why, step by step, so it doubles
-as both a run guide and an implementation writeup.
+as both a run guide and an implementation writeup. Every diagram below reflects
+real files and real status values in this codebase — not a generic template.
+
+<details open>
+<summary><strong>📖 Table of contents</strong></summary>
+
+- [Visual system design](#visual-system-design)
+  - [Architecture at a glance](#architecture-at-a-glance)
+  - [Invoice lifecycle (state machine)](#invoice-lifecycle-state-machine)
+  - [Recovery sequence, end to end](#recovery-sequence-end-to-end)
+  - [Database schema](#database-schema)
+- [1. The problem this solves](#1-the-problem-this-solves)
+- [2. Design philosophy](#2-design-philosophy-right-sized-not-maximal)
+- [3. Build order and what each step does](#3-build-order-and-what-each-step-does)
+- [4. Quickstart](#4-quickstart)
+- [5. Testing the webhook path](#5-testing-the-webhook-path)
+- [6. Repo layout](#6-repo-layout)
+- [7. Verified working](#7-verified-working-already-tested)
+- [8. The dashboard](#8-the-dashboard-frontend)
+- [9. Natural next steps](#9-natural-next-steps-in-priority-order)
+
+</details>
+
+---
+
+## Visual system design
+
+### Architecture at a glance
+
+```mermaid
+graph TD
+    subgraph Sources["Data sources"]
+        A1["Stripe webhook<br/>HMAC-verified"]
+        A2["Seed script<br/>demo data"]
+    end
+
+    subgraph Backend["FastAPI backend"]
+        B1["Ingestion<br/>routers/webhooks.py"]
+        B5["Recovery engine<br/>recovery_engine.py"]
+        B2["Decline taxonomy<br/>decline_taxonomy.py"]
+        B3["Fraud heuristic<br/>fraud_heuristic.py"]
+        B4["Retry rules / model<br/>retry_rules.py + retry_model.py"]
+        B6["CFO Copilot<br/>routers/copilot.py"]
+        B7["Magic-link portal<br/>routers/portal.py"]
+    end
+
+    subgraph Data["Persistence"]
+        D1[("SQLite / Postgres")]
+        D2["ML artifacts<br/>retry_model.joblib<br/>fraud_demo_model.joblib"]
+    end
+
+    subgraph External["External services"]
+        E1["Groq LLM<br/>dunning copy + SQL synthesis"]
+        E2["Resend<br/>email delivery"]
+    end
+
+    subgraph Frontend["Next.js dashboard"]
+        F1["Recovery pipeline<br/>live stage counts"]
+        F2["Invoice table<br/>search + filter"]
+        F3["CFO Copilot widget<br/>floating icon"]
+        F4["Model status panel"]
+    end
+
+    A1 --> B1 --> B5
+    A2 --> D1
+    B5 --> B2
+    B5 --> B3
+    B5 --> B4
+    B5 -->|dunning copy| E1
+    B5 -->|send email| E2
+    B5 -.->|magic link| B7
+    B6 --> E1
+    B4 -.-> D2
+    B3 -.-> D1
+    B5 --> D1
+    D1 --> F1
+    D1 --> F2
+    B6 --> F3
+    D2 --> F4
+```
+
+### Invoice lifecycle (state machine)
+
+Every status value below is a real string used in `FailedInvoice.status` — this
+is the literal state machine `recovery_engine.py` implements, not an illustration.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: Webhook or seed script
+    PENDING --> FRAUD_REVIEW: Card-testing pattern detected (Step 13)
+    PENDING --> SCHEDULED_RETRY: Soft decline
+    PENDING --> DUNNING_ACTIVE: Hard decline / churn suspect
+
+    SCHEDULED_RETRY --> RECOVERED: Silent retry succeeds
+    SCHEDULED_RETRY --> SCHEDULED_RETRY: Retry fails, attempts < 3
+    SCHEDULED_RETRY --> DUNNING_ACTIVE: 3 failed attempts
+    SCHEDULED_RETRY --> FAILED_EXHAUSTED: Max attempts / 14 days exceeded
+
+    DUNNING_ACTIVE --> RECOVERED: Customer updates card via magic-link portal
+
+    FRAUD_REVIEW --> [*]: Held for manual review, never auto-retried
+    RECOVERED --> [*]
+    FAILED_EXHAUSTED --> [*]
+```
+
+### Recovery sequence, end to end
+
+```mermaid
+sequenceDiagram
+    participant Stripe
+    participant API as FastAPI
+    participant Engine as Recovery Engine
+    participant Fraud as Fraud Heuristic
+    participant DB
+    participant Groq
+    participant Customer
+
+    Stripe->>API: POST /webhooks/stripe (HMAC-signed)
+    API->>DB: insert FailedInvoice (status=PENDING)
+    API->>Engine: process_due_invoices()
+    Engine->>Fraud: fraud_risk_score()
+
+    alt High fraud risk
+        Engine->>DB: status = FRAUD_REVIEW
+    else Soft decline
+        Engine->>DB: status = SCHEDULED_RETRY
+        Note over Engine: waits for scheduled time (heuristic or trained model)
+        Engine->>DB: attempt headless retry
+    else Hard decline
+        Engine->>Groq: generate dunning copy
+        Groq-->>Engine: subject + body (or offline fallback)
+        Engine->>Customer: send email with 15-min magic link
+        Customer->>API: GET /portal/invoice?token=...
+        Customer->>API: POST /portal/update-card
+        API->>DB: status = RECOVERED
+    end
+```
+
+### Database schema
+
+```mermaid
+erDiagram
+    TENANTS ||--o{ CUSTOMERS : has
+    TENANTS ||--o{ FAILED_INVOICES : has
+    TENANTS ||--o{ WEBHOOK_EVENTS : receives
+    CUSTOMERS ||--o{ FAILED_INVOICES : owes
+    FAILED_INVOICES ||--o{ RECOVERY_ACTIONS : "acted on by"
+
+    TENANTS {
+        string id PK
+        string name
+    }
+    CUSTOMERS {
+        string id PK
+        string tenant_id FK
+        string email
+        numeric health_score
+        int days_active_past_30d
+        bigint mrr_cents
+    }
+    FAILED_INVOICES {
+        string id PK
+        string tenant_id FK
+        string customer_id FK
+        string raw_decline_code
+        string status
+        int attempt_count
+        bigint amount_due_cents
+    }
+    RECOVERY_ACTIONS {
+        string id PK
+        string invoice_id FK
+        string action_type
+        boolean is_successful
+        int attempt_number
+        string decline_code_snapshot
+    }
+    WEBHOOK_EVENTS {
+        string id PK
+        string tenant_id FK
+        string event_type
+    }
+```
 
 ---
 
