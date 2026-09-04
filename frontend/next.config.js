@@ -1,14 +1,19 @@
-/** @type {import('next').NextConfig} */
-const apiUrl = (process.env.API_URL || "http://localhost:8000").replace(/\/$/, "");
 
+/** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
-  ignoreDuringBuilds: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
+    const backendUrl =
+      process.env.BACKEND_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "https://sudhar-ai.onrender.com/"; // Replace with your live Render backend URL
+
     return [
       {
         source: "/api/backend/:path*",
-        destination: `${apiUrl}/:path*`,
+        destination: `${backendUrl}/:path*`,
       },
     ];
   },
