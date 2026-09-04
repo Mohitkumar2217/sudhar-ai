@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_API_URL;
 
 export type Invoice = {
   id: string;
