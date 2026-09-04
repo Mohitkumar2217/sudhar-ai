@@ -816,5 +816,3 @@ that's an acceptable tradeoff for now — revisit before any real deployment.
    `STRIPE_WEBHOOK_SECRET` and `MAGIC_LINK_SECRET`'s local-dev defaults with real
    secrets, and plan the Next 16 upgrade to clear the remaining `npm audit`
    advisories.
-
-https://sudhar-ai.onrender.com/
