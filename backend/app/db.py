@@ -3,18 +3,24 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Load .env from the backend folder before reading DATABASE_URL so the seed script
-# and any app import behave the same as the FastAPI app.
+# Load .env locally; on Render, environment variables are injected directly
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-# Defaults to a local SQLite file so you can run this immediately with no
-# infra setup. Point DATABASE_URL at Postgres (see schema.sql) for real deployment,
-# e.g. postgresql+psycopg2://user:pass@host:5432/revenuerescue
-DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./revenuerescue.db"
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Fall back to SQLite only if DATABASE_URL is not set at all
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./revenuerescue.db"
+
+# Render and older Heroku conventions provide "postgres://"
+# SQLAlchemy 1.4+ and 2.0 require "postgresql://" or "postgresql+psycopg2://"
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
