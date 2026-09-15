@@ -114,11 +114,6 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {error && (
-        <div className="bg-rustDim border border-rust/40 text-rust text-sm rounded-md px-4 py-3 mb-6 font-mono">
-          {error}
-        </div>
-      )}
 
       {/* Metric cards */}
       <section className="section-3d grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
