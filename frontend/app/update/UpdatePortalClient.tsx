@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, PortalInvoice, formatCents } from "@/lib/api";
+import { PortalInvoice, formatCents } from "@/lib/api";
+import { dataSource } from "@/lib/data-source";
 
 type ViewState = "loading" | "error" | "already_recovered" | "ready" | "success";
 
@@ -22,7 +23,7 @@ export default function UpdatePortalClient() {
       setView("error");
       return;
     }
-    api
+    dataSource
       .getPortalInvoice(token)
       .then((data) => {
         setInvoice(data);
@@ -40,7 +41,7 @@ export default function UpdatePortalClient() {
     if (!confirmed || submitting) return;
     setSubmitting(true);
     try {
-      await api.updateCard(token);
+      await dataSource.updateCard(token);
       setView("success");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Something went wrong.");

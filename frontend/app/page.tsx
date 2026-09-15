@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, DashboardSummary, Invoice, ModelStatus, ActivityAction, formatCents } from "@/lib/api";
+import { DashboardSummary, Invoice, ModelStatus, ActivityAction, formatCents } from "@/lib/api";
+import { dataSource } from "@/lib/data-source";
 import MetricCard from "@/components/MetricCard";
 import PulseLine from "@/components/PulseLine";
 import InvoiceTable from "@/components/InvoiceTable";
@@ -29,10 +30,10 @@ export default function DashboardPage() {
     if (!opts?.silent) setLoading(true);
     try {
       const [s, i, m, a] = await Promise.all([
-        api.getSummary(),
-        api.getInvoices(statusFilter || undefined),
-        api.getModelStatus(),
-        api.getActivity(15),
+        dataSource.getSummary(),
+        dataSource.getInvoices(statusFilter || undefined),
+        dataSource.getModelStatus(),
+        dataSource.getActivity(15),
       ]);
       setSummary(s);
       setInvoices(i);
@@ -66,7 +67,7 @@ export default function DashboardPage() {
   async function handleRunCycle() {
     setCycling(true);
     try {
-      await api.runRecoveryCycle();
+      await dataSource.runRecoveryCycle();
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Recovery cycle failed.");
